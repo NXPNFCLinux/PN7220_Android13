@@ -1,0 +1,198 @@
+diff --git a/Android.mk b/Android.mk
+index 8fd90b0ca..1c0cce7e4 100644
+--- a/Android.mk
++++ b/Android.mk
+@@ -54,14 +54,14 @@ PLAT_VENDOR_POLICY := $(LOCAL_PATH)/vendor
+ REQD_MASK_POLICY := $(LOCAL_PATH)/reqd_mask
+ 
+ SYSTEM_EXT_PUBLIC_POLICY := $(SYSTEM_EXT_PUBLIC_SEPOLICY_DIRS)
+-ifneq (,$(BOARD_PLAT_PUBLIC_SEPOLICY_DIR))
++ifneq (,$(SYSTEM_EXT_PUBLIC_SEPOLICY_DIRS))
+   # TODO: Disallow BOARD_PLAT_*
+-  SYSTEM_EXT_PUBLIC_POLICY += $(BOARD_PLAT_PUBLIC_SEPOLICY_DIR)
++  SYSTEM_EXT_PUBLIC_POLICY += $(SYSTEM_EXT_PUBLIC_SEPOLICY_DIRS)
+ endif
+ SYSTEM_EXT_PRIVATE_POLICY := $(SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS)
+-ifneq (,$(BOARD_PLAT_PRIVATE_SEPOLICY_DIR))
++ifneq (,$(SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS))
+   # TODO: Disallow BOARD_PLAT_*
+-  SYSTEM_EXT_PRIVATE_POLICY += $(BOARD_PLAT_PRIVATE_SEPOLICY_DIR)
++  SYSTEM_EXT_PRIVATE_POLICY += $(SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS)
+ endif
+ 
+ PRODUCT_PUBLIC_POLICY := $(PRODUCT_PUBLIC_SEPOLICY_DIRS)
+diff --git a/prebuilts/api/32.0/private/service_contexts b/prebuilts/api/32.0/private/service_contexts
+index 3fd342b9b..e063865ac 100644
+--- a/prebuilts/api/32.0/private/service_contexts
++++ b/prebuilts/api/32.0/private/service_contexts
+@@ -21,6 +21,7 @@ android.hardware.vibrator.IVibratorManager/default                   u:object_r:
+ android.hardware.weaver.IWeaver/default                              u:object_r:hal_weaver_service:s0
+ android.frameworks.stats.IStats/default                              u:object_r:fwk_stats_service:s0
+ android.system.keystore2.IKeystoreService/default                    u:object_r:keystore_service:s0
++android.hardware.emvco.INxpEmvco/default                             u:object_r:hal_emvco_service:s0
+ 
+ accessibility                             u:object_r:accessibility_service:s0
+ account                                   u:object_r:account_service:s0
+diff --git a/prebuilts/api/32.0/public/service.te b/prebuilts/api/32.0/public/service.te
+index ba7837d56..3074739ae 100644
+--- a/prebuilts/api/32.0/public/service.te
++++ b/prebuilts/api/32.0/public/service.te
+@@ -268,7 +268,7 @@ type hal_secureclock_service, vendor_service, protected_service, service_manager
+ type hal_sharedsecret_service, vendor_service, protected_service, service_manager_type;
+ type hal_vibrator_service, vendor_service, protected_service, service_manager_type;
+ type hal_weaver_service, vendor_service, protected_service, service_manager_type;
+-
++type hal_emvco_service, vendor_service, service_manager_type;
+ ###
+ ### Neverallow rules
+ ###
+diff --git a/prebuilts/api/33.0/private/compat/32.0/32.0.ignore.cil b/prebuilts/api/33.0/private/compat/32.0/32.0.ignore.cil
+index a07f5ae44..6925b45ff 100644
+--- a/prebuilts/api/33.0/private/compat/32.0/32.0.ignore.cil
++++ b/prebuilts/api/33.0/private/compat/32.0/32.0.ignore.cil
+@@ -79,4 +79,5 @@
+     vendor_vm_file
+     virtual_device_service
+     wallpaper_effects_generation_service
++    hal_emvco_service
+ ))
+diff --git a/prebuilts/api/33.0/private/service_contexts b/prebuilts/api/33.0/private/service_contexts
+index 72fa16629..bf64d0784 100644
+--- a/prebuilts/api/33.0/private/service_contexts
++++ b/prebuilts/api/33.0/private/service_contexts
+@@ -69,6 +69,7 @@ android.frameworks.stats.IStats/default                              u:object_r:
+ android.se.omapi.ISecureElementService/default                       u:object_r:secure_element_service:s0
+ android.system.keystore2.IKeystoreService/default                    u:object_r:keystore_service:s0
+ android.system.suspend.ISystemSuspend/default                        u:object_r:hal_system_suspend_service:s0
++android.hardware.emvco.INxpEmvco/default                             u:object_r:hal_emvco_service:s0
+ 
+ accessibility                             u:object_r:accessibility_service:s0
+ account                                   u:object_r:account_service:s0
+diff --git a/prebuilts/api/33.0/public/attributes b/prebuilts/api/33.0/public/attributes
+index 742264a55..4cb757f59 100644
+--- a/prebuilts/api/33.0/public/attributes
++++ b/prebuilts/api/33.0/public/attributes
+@@ -395,7 +395,7 @@ hal_attribute(weaver);
+ hal_attribute(wifi);
+ hal_attribute(wifi_hostapd);
+ hal_attribute(wifi_supplicant);
+-
++hal_attribute(emvco);
+ # HwBinder services offered across the core-vendor boundary
+ #
+ # We annotate server domains with x_server  to loosen the coupling between
+diff --git a/prebuilts/api/33.0/public/hal_emvco.te b/prebuilts/api/33.0/public/hal_emvco.te
+new file mode 100755
+index 000000000..b3e56834b
+--- /dev/null
++++ b/prebuilts/api/33.0/public/hal_emvco.te
+@@ -0,0 +1,4 @@
++binder_call(hal_emvco_client, hal_emvco_server)
++add_service(hal_emvco_server, hal_emvco_service)
++binder_call(hal_emvco_server, servicemanager)
++allow hal_emvco_client hal_emvco_service:service_manager find;
+\ No newline at end of file
+diff --git a/prebuilts/api/33.0/public/service.te b/prebuilts/api/33.0/public/service.te
+index e862b405f..ef4860298 100644
+--- a/prebuilts/api/33.0/public/service.te
++++ b/prebuilts/api/33.0/public/service.te
+@@ -310,6 +310,7 @@ type hal_weaver_service, vendor_service, protected_service, hal_service_type, se
+ type hal_nlinterceptor_service, vendor_service, protected_service, hal_service_type, service_manager_type;
+ type hal_wifi_hostapd_service, vendor_service, protected_service, hal_service_type, service_manager_type;
+ type hal_wifi_supplicant_service, vendor_service, protected_service, hal_service_type, service_manager_type;
++type hal_emvco_service, vendor_service, service_manager_type;
+ 
+ ###
+ ### Neverallow rules
+diff --git a/private/compat/32.0/32.0.ignore.cil b/private/compat/32.0/32.0.ignore.cil
+index a07f5ae44..6925b45ff 100644
+--- a/private/compat/32.0/32.0.ignore.cil
++++ b/private/compat/32.0/32.0.ignore.cil
+@@ -79,4 +79,5 @@
+     vendor_vm_file
+     virtual_device_service
+     wallpaper_effects_generation_service
++    hal_emvco_service
+ ))
+diff --git a/private/service_contexts b/private/service_contexts
+index 72fa16629..bf64d0784 100644
+--- a/private/service_contexts
++++ b/private/service_contexts
+@@ -69,6 +69,7 @@ android.frameworks.stats.IStats/default                              u:object_r:
+ android.se.omapi.ISecureElementService/default                       u:object_r:secure_element_service:s0
+ android.system.keystore2.IKeystoreService/default                    u:object_r:keystore_service:s0
+ android.system.suspend.ISystemSuspend/default                        u:object_r:hal_system_suspend_service:s0
++android.hardware.emvco.INxpEmvco/default                             u:object_r:hal_emvco_service:s0
+ 
+ accessibility                             u:object_r:accessibility_service:s0
+ account                                   u:object_r:account_service:s0
+diff --git a/public/attributes b/public/attributes
+index 742264a55..4cb757f59 100644
+--- a/public/attributes
++++ b/public/attributes
+@@ -395,7 +395,7 @@ hal_attribute(weaver);
+ hal_attribute(wifi);
+ hal_attribute(wifi_hostapd);
+ hal_attribute(wifi_supplicant);
+-
++hal_attribute(emvco);
+ # HwBinder services offered across the core-vendor boundary
+ #
+ # We annotate server domains with x_server  to loosen the coupling between
+diff --git a/public/hal_emvco.te b/public/hal_emvco.te
+new file mode 100755
+index 000000000..b3e56834b
+--- /dev/null
++++ b/public/hal_emvco.te
+@@ -0,0 +1,4 @@
++binder_call(hal_emvco_client, hal_emvco_server)
++add_service(hal_emvco_server, hal_emvco_service)
++binder_call(hal_emvco_server, servicemanager)
++allow hal_emvco_client hal_emvco_service:service_manager find;
+\ No newline at end of file
+diff --git a/public/service.te b/public/service.te
+index e862b405f..ef4860298 100644
+--- a/public/service.te
++++ b/public/service.te
+@@ -310,6 +310,7 @@ type hal_weaver_service, vendor_service, protected_service, hal_service_type, se
+ type hal_nlinterceptor_service, vendor_service, protected_service, hal_service_type, service_manager_type;
+ type hal_wifi_hostapd_service, vendor_service, protected_service, hal_service_type, service_manager_type;
+ type hal_wifi_supplicant_service, vendor_service, protected_service, hal_service_type, service_manager_type;
++type hal_emvco_service, vendor_service, service_manager_type;
+ 
+ ###
+ ### Neverallow rules
+diff --git a/vendor/file_contexts b/vendor/file_contexts
+index 392a750fd..20883d3bf 100644
+--- a/vendor/file_contexts
++++ b/vendor/file_contexts
+@@ -69,7 +69,7 @@
+ /(vendor|system/vendor)/bin/hw/android\.hardware\.memtrack-service.example    u:object_r:hal_memtrack_default_exec:s0
+ /(vendor|system/vendor)/bin/hw/android\.hardware\.nfc@1\.0-service            u:object_r:hal_nfc_default_exec:s0
+ /(vendor|system/vendor)/bin/hw/android\.hardware\.nfc@1\.1-service            u:object_r:hal_nfc_default_exec:s0
+-/(vendor|system/vendor)/bin/hw/android\.hardware\.nfc@1\.2-service            u:object_r:hal_nfc_default_exec:s0
++/(vendor|system/vendor)/bin/hw/android\.hardware\.nfc_pn72xx@1\.2-service            u:object_r:hal_nfc_default_exec:s0
+ /(vendor|system/vendor)/bin/hw/android\.hardware\.media\.omx@1\.0-service            u:object_r:mediacodec_exec:s0
+ /(vendor|system/vendor)/bin/hw/android\.hardware\.power@1\.0-service          u:object_r:hal_power_default_exec:s0
+ /(vendor|system/vendor)/bin/hw/android\.hardware\.power-service\.example       u:object_r:hal_power_default_exec:s0
+@@ -105,6 +105,7 @@
+ /(vendor|system/vendor)/bin/hw/wpa_supplicant                                 u:object_r:hal_wifi_supplicant_default_exec:s0
+ /(vendor|system/vendor)/bin/install-recovery\.sh                              u:object_r:vendor_install_recovery_exec:s0
+ /(vendor|system/vendor)/bin/vndservicemanager                                 u:object_r:vndservicemanager_exec:s0
++/(vendor|system/vendor)/bin/hw/android\.hardware\.emvco-service              u:object_r:hal_emvco_default_exec:s0
+ 
+ #############################
+ # Same process HALs installed by platform into /vendor
+diff --git a/vendor/hal_emvco_default.te b/vendor/hal_emvco_default.te
+new file mode 100755
+index 000000000..f7bf1c1e7
+--- /dev/null
++++ b/vendor/hal_emvco_default.te
+@@ -0,0 +1,6 @@
++type hal_emvco_default, domain;
++allow hal_emvco_default hal_emvco_service:service_manager add;
++allow hal_emvco_default servicemanager:binder { call transfer };
++hal_server_domain(hal_emvco_default, hal_emvco)
++type hal_emvco_default_exec, exec_type, vendor_file_type, file_type;
++init_daemon_domain(hal_emvco_default)
+\ No newline at end of file

@@ -1,0 +1,26 @@
+diff --git a/cc/config/vndk.go b/cc/config/vndk.go
+index 492cd9844..1f841df25 100644
+--- a/cc/config/vndk.go
++++ b/cc/config/vndk.go
+@@ -133,4 +133,6 @@ var VndkMustUseVendorVariantList = []string{
+ 	"libstagefright_xmlparser",
+ 	"libui",
+ 	"libxml2",
++    "android.hardware.emvco-V1-ndk",
++    "aidl.vendor.nxp.nxpnfc-V1-ndk",
+ }
+diff --git a/scripts/manifest_check.py b/scripts/manifest_check.py
+index c8d4f76c8..146841a4e 100755
+--- a/scripts/manifest_check.py
++++ b/scripts/manifest_check.py
+@@ -144,8 +144,8 @@ def enforce_uses_libraries(manifest, required, optional, relax, is_apk, path):
+     ])
+     #pylint: enable=line-too-long
+ 
+-    if not relax:
+-        raise ManifestMismatchError(errmsg)
++    #if not relax:
++    #    raise ManifestMismatchError(errmsg)
+ 
+     return errmsg
+ 

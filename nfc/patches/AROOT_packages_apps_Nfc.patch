@@ -1,0 +1,3811 @@
+diff --git a/Android.bp b/Android.bp
+index 21c15aad..7fbf60e2 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -18,12 +18,19 @@ android_app {
+         "nci/**/*.java",
+         ":statslog-Nfc-java-gen",
+     ],
++    uses_libs: [
++        "com.nxp.emvco"
++    ],
+     platform_apis: true,
+     certificate: "platform",
+     jni_libs: ["libnfc_nci_jni"],
++    libs: [
++        "com.nxp.emvco"
++    ],
+     static_libs: [
+         "androidx.appcompat_appcompat",
+         "com.google.android.material_material",
++        "android.hardware.emvco-V1-java",
+     ],
+     optimize: {
+         enabled: false,
+diff --git a/AndroidManifest.xml b/AndroidManifest.xml
+index cfa2f115..fb8f0e41 100755
+--- a/AndroidManifest.xml
++++ b/AndroidManifest.xml
+@@ -164,5 +164,9 @@
+ 
+         <service android:name=".handover.PeripheralHandoverService"
+         />
++
++        <uses-library android:name="com.nxp.emvco"
++            android:required="true"
++        />
+     </application>
+ </manifest>
+diff --git a/SCR.txt b/SCR.txt
+new file mode 100644
+index 00000000..77a81ed5
+--- /dev/null
++++ b/SCR.txt
+@@ -0,0 +1,49 @@
++NXP Software Content Register
++Outgoing License: LA_OPT_NXP_Software_License v33 Jan 2022
++License File:     LA_OPT_NXP_Software_License.pdf
++​
++--------------------------------------------
++Outgoing License:          Apache Version 2.0
++License Files:             COPYING
++Package Category:          NFC Middleware
++Type of content:           Source
++Description and comments:  NCI based NFC stack
++Release Location:          
++Origin:                    The Android Open Source Project (Apache-2.0) - https://source.android.com/
++                           NXP (Apache-2.0)
++--------------------------------------------
++Outgoing License:          Apache Version 2.0
++License Files:             COPYING
++Package Category:          NFC Middleware
++Type of content:           Source
++Description and comments:  JNI NCI NFC
++Release Location:          
++Origin:                    The Android Open Source Project (Apache-2.0) - https://source.android.com/
++                           NXP (Apache-2.0)
++--------------------------------------------
++Outgoing License:          Apache Version 2.0
++License Files:             COPYING
++Package Category:          NFC SE Middleware
++Type of content:           Source
++Description and comments:  Hardware abstraction layer for NXP specific controllers
++Release Location:          
++Origin:                    The Android Open Source Project (Apache-2.0) - https://source.android.com/
++                           The Android Open Source Project (MIT) - https://source.android.com/
++                           NXP (Apache-2.0)
++--------------------------------------------
++Outgoing License:          Apache Version 2.0
++License Files:             COPYING
++Package Category:          NFC Middleware and Test Application
++Type of content:           Source
++Description and comments:  Device Test Application (DTA) used for NFC Forum testing
++Release Location:          https://github.com/NXPNFCProject/NXPAndroidDTA
++Origin:                    NXP (Apache-2.0)
++--------------------------------------------
++Outgoing License:          LA_OPT_NXP_Software_License
++License File:              COPYING
++Package Category:          NFC Firmware
++Type of content:           Binariy
++Description and comments:  NFC controller firmware
++Release Location:          
++Origin:                    NXP (proprietary)
++--------------------------------------------
+\ No newline at end of file
+diff --git a/nci/jni/Android.bp b/nci/jni/Android.bp
+index 02dbd590..3e9cf8d9 100644
+--- a/nci/jni/Android.bp
++++ b/nci/jni/Android.bp
+@@ -10,8 +10,9 @@ cc_library_shared {
+         "-Wextra",
+         "-Wno-unused-parameter",
+         "-Werror",
+-
++        "-DNXP_EXTNS=TRUE",
+         "-DNXP_UICC_ENABLE",
++        "-DNFC_AGC_DEBUG_FEATURE=TRUE",
+     ],
+ 
+     srcs: ["**/*.cpp"],
+@@ -40,6 +41,7 @@ cc_library_shared {
+         "libnfc-nci",
+         "libchrome",
+         "libbase",
++        "vendor.nxp.nxpnfc@2.0",
+     ],
+ 
+     static_libs: ["libxml2"],
+diff --git a/nci/jni/JavaClassConstants.h b/nci/jni/JavaClassConstants.h
+index 46aee35f..62567159 100644
+--- a/nci/jni/JavaClassConstants.h
++++ b/nci/jni/JavaClassConstants.h
+@@ -13,6 +13,26 @@
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  */
++/******************************************************************************
++ *
++ *  The original Work has been changed by NXP.
++ *
++ *  Copyright 2023 NXP
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ ******************************************************************************/
++
+ #pragma once
+ #include "NfcJniUtil.h"
+ 
+@@ -32,10 +52,17 @@ extern jmethodID gCachedNfcManagerNotifyHostEmuDeactivated;
+ 
+ extern jmethodID gCachedNfcManagerNotifyEeUpdated;
+ 
++#if (NXP_EXTNS == TRUE)
++extern jmethodID gCachedNfcManagerNotifyNfcHalBinderDied;
++#endif
++
+ extern const char* gNativeP2pDeviceClassName;
+ extern const char* gNativeLlcpServiceSocketClassName;
+ extern const char* gNativeLlcpConnectionlessSocketClassName;
+ extern const char* gNativeLlcpSocketClassName;
+ extern const char* gNativeNfcTagClassName;
+ extern const char* gNativeNfcManagerClassName;
++#if (NXP_EXTNS == TRUE)
++extern jmethodID gCachedNfcManagerNotifyTagAbortListeners;
++#endif
+ }  // namespace android
+diff --git a/nci/jni/NativeNfcManager.cpp b/nci/jni/NativeNfcManager.cpp
+index 445a5ddc..7355bd47 100644
+--- a/nci/jni/NativeNfcManager.cpp
++++ b/nci/jni/NativeNfcManager.cpp
+@@ -13,7 +13,25 @@
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  */
+-
++/******************************************************************************
++ *
++ *  The original Work has been changed by NXP
++ *
++ *  Copyright 2022-2023 NXP
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ ******************************************************************************/
+ #include <android-base/stringprintf.h>
+ #include <base/logging.h>
+ #include <cutils/properties.h>
+@@ -45,6 +63,9 @@
+ #include "nfc_config.h"
+ #include "phNxpExtns.h"
+ #include "rw_api.h"
++#if(NXP_EXTNS == TRUE)
++#include "NfcTagExtns.h"
++#endif
+ 
+ using android::base::StringPrintf;
+ 
+@@ -105,6 +126,10 @@ jmethodID gCachedNfcManagerNotifyRfFieldActivated;
+ jmethodID gCachedNfcManagerNotifyRfFieldDeactivated;
+ jmethodID gCachedNfcManagerNotifyEeUpdated;
+ jmethodID gCachedNfcManagerNotifyHwErrorReported;
++#if (NXP_EXTNS == TRUE)
++jmethodID gCachedNfcManagerNotifyTagAbortListeners;
++jmethodID gCachedNfcManagerNotifyNfcHalBinderDied;
++#endif
+ const char* gNativeP2pDeviceClassName =
+     "com/android/nfc/dhimpl/NativeP2pDevice";
+ const char* gNativeLlcpServiceSocketClassName =
+@@ -289,6 +314,7 @@ static void handleRfDiscoveryEvent(tNFC_RESULT_DEVT* discoveredDevice) {
+ static void nfaConnectionCallback(uint8_t connEvent,
+                                   tNFA_CONN_EVT_DATA* eventData) {
+   tNFA_STATUS status = NFA_STATUS_FAILED;
++  NfcTagExtns& nfcTagExtns = NfcTagExtns::getInstance();
+   DLOG_IF(INFO, nfc_debug_enabled)
+       << StringPrintf("%s: event= %u", __func__, connEvent);
+ 
+@@ -344,6 +370,10 @@ static void nfaConnectionCallback(uint8_t connEvent,
+                                    __func__, status);
+       } else {
+         NfcTag::getInstance().connectionEventHandler(connEvent, eventData);
++#if (NXP_EXTNS == TRUE)
++        nfcTagExtns.processNonStdNtfHandler(EVENT_TYPE::NFA_DISC_RESULT_EVENT,
++                                            eventData);
++#endif
+         handleRfDiscoveryEvent(&eventData->disc_result.discovery_ntf);
+       }
+       break;
+@@ -373,6 +403,10 @@ static void nfaConnectionCallback(uint8_t connEvent,
+       DLOG_IF(INFO, nfc_debug_enabled)
+           << StringPrintf("%s: NFA_DEACTIVATE_FAIL_EVT: status = %d", __func__,
+                           eventData->status);
++#if (NXP_EXTNS == TRUE)
++      nfcTagExtns.processNonStdNtfHandler(EVENT_TYPE::NFA_DEACTIVATE_FAIL_EVENT,
++                                          eventData);
++#endif
+       break;
+ 
+     case NFA_ACTIVATED_EVT:  // NFC link/protocol activated
+@@ -402,13 +436,20 @@ static void nfaConnectionCallback(uint8_t connEvent,
+       NfcTag::getInstance().setActive(true);
+       if (sIsDisabling || !sIsNfaEnabled) break;
+       gActivated = true;
+-
++#if (NXP_EXTNS == TRUE)
++      nfcTagExtns.processNonStdNtfHandler(EVENT_TYPE::NFA_ACTIVATED_EVENT,
++                                          eventData);
++#endif
++#if (NXP_EXTNS != TRUE)
+       NfcTag::getInstance().setActivationState();
++#endif
+       if (gIsSelectingRfInterface) {
+         nativeNfcTag_doConnectStatus(true);
+         break;
+       }
+-
++#if (NXP_EXTNS == TRUE)
++      NfcTag::getInstance().setActivationState();
++#endif
+       nativeNfcTag_resetPresenceCheck();
+       if (!isListenMode(eventData->activated) &&
+           (prevScreenState == NFA_SCREEN_STATE_OFF_LOCKED ||
+@@ -464,6 +505,11 @@ static void nfaConnectionCallback(uint8_t connEvent,
+           __func__, eventData->deactivated.type, gIsTagDeactivating);
+       NfcTag::getInstance().setDeactivationState(eventData->deactivated);
+       NfcTag::getInstance().selectNextTagIfExists();
++#if (NXP_EXTNS == TRUE)
++      // can be moved to non-std tag handling
++      nfcTagExtns.processNonStdNtfHandler(EVENT_TYPE::NFA_DEACTIVATE_EVENT,
++                                          eventData);
++#endif
+       if (eventData->deactivated.type != NFA_DEACTIVATE_TYPE_SLEEP) {
+         {
+           SyncEventGuard g(gDeactivatedEvent);
+@@ -471,8 +517,10 @@ static void nfaConnectionCallback(uint8_t connEvent,
+           gDeactivatedEvent.notifyOne();
+         }
+         nativeNfcTag_resetPresenceCheck();
++#if (NXP_EXTNS != TRUE)
+         NfcTag::getInstance().connectionEventHandler(connEvent, eventData);
+         nativeNfcTag_abortWaits();
++#endif
+         NfcTag::getInstance().abort();
+       } else if (gIsTagDeactivating) {
+         NfcTag::getInstance().setActive(false);
+@@ -736,6 +784,11 @@ static jboolean nfcManager_initNativeStruc(JNIEnv* e, jobject o) {
+   gCachedNfcManagerNotifyHwErrorReported =
+       e->GetMethodID(cls.get(), "notifyHwErrorReported", "()V");
+ 
++#if (NXP_EXTNS == TRUE)
++  gCachedNfcManagerNotifyNfcHalBinderDied =
++      e->GetMethodID(cls.get(), "notifyNfcHalBinderDied", "()V");
++#endif
++
+   if (nfc_jni_cache_object(e, gNativeNfcTagClassName, &(nat->cached_NfcTag)) ==
+       -1) {
+     LOG(ERROR) << StringPrintf("%s: fail cache NativeNfcTag", __func__);
+@@ -820,6 +873,9 @@ void nfaDeviceManagementCallback(uint8_t dmEvent,
+       DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
+           "%s: NFA_DM_RF_FIELD_EVT; status=0x%X; field status=%u", __func__,
+           eventData->rf_field.status, eventData->rf_field.rf_field_status);
++#if (NFC_AGC_DEBUG_FEATURE == TRUE)
++      EXTNS_DebugAgcCfg(eventData->rf_field.rf_field_status);
++#endif
+       if (!sP2pActive && eventData->rf_field.status == NFA_STATUS_OK) {
+         struct nfc_jni_native_data* nat = getNative(NULL, NULL);
+         JNIEnv* e = NULL;
+@@ -950,6 +1006,19 @@ void nfaDeviceManagementCallback(uint8_t dmEvent,
+       SyncEventGuard guard(sNfaSetPowerSubState);
+       sNfaSetPowerSubState.notifyOne();
+     } break;
++#if (NXP_EXTNS == TRUE)
++    case NFA_DM_NFC_HAL_BINDER_DIED_EVT: {
++      struct nfc_jni_native_data *nat = getNative(NULL, NULL);
++      JNIEnv *e = NULL;
++      ScopedAttach attach(nat->vm, &e);
++      if (e == NULL) {
++        LOG(ERROR) << StringPrintf("jni env is null");
++        return;
++      }
++      e->CallVoidMethod(nat->manager,
++                        android::gCachedNfcManagerNotifyNfcHalBinderDied);
++    } break;
++#endif
+     default:
+       DLOG_IF(INFO, nfc_debug_enabled)
+           << StringPrintf("%s: unhandled event", __func__);
+@@ -1005,6 +1074,7 @@ static jboolean nfcManager_routeAid(JNIEnv* e, jobject, jbyteArray aid,
+   ScopedByteArrayRO bytes(e, aid);
+   buf = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(&bytes[0]));
+   bufLen = bytes.size();
++
+   return RoutingManager::getInstance().addAidRouting(buf, bufLen, route,
+                                                      aidInfo, power);
+ }
+@@ -1141,6 +1211,9 @@ static jint nfcManager_getLfT3tMax(JNIEnv*, jobject) {
+ **
+ *******************************************************************************/
+ static jboolean nfcManager_doInitialize(JNIEnv* e, jobject o) {
++#if (NXP_EXTNS == TRUE)
++  tNFA_MW_VERSION mwVer;
++#endif
+   initializeGlobalDebugEnabledFlag();
+   tNFA_STATUS stat = NFA_STATUS_OK;
+   sIsRecovering = false;
+@@ -1152,6 +1225,13 @@ static jboolean nfcManager_doInitialize(JNIEnv* e, jobject o) {
+         << StringPrintf("%s: already enabled", __func__);
+     goto TheEnd;
+   }
++#if (NXP_EXTNS == TRUE)
++    mwVer=  NFA_GetMwVersion();
++    DLOG_IF(INFO, true) << StringPrintf(
++        "%s:  MW Version: NFC_AR_INFRA_%04X_%02d.%02x.%02x", __func__,
++        mwVer.validation, mwVer.android_version,
++        mwVer.major_version, mwVer.minor_version);
++#endif
+ 
+   powerSwitch.initialize(PowerSwitch::FULL_POWER);
+ 
+@@ -1211,7 +1291,7 @@ static jboolean nfcManager_doInitialize(JNIEnv* e, jobject o) {
+             NAME_NFA_DM_DISC_DURATION_POLL, DEFAULT_DISCOVERY_DURATION);
+ 
+         NFA_SetRfDiscoveryDuration(nat->discovery_duration);
+-
++#if (NXP_EXTNS != TRUE)
+         // get LF_T3T_MAX
+         {
+           SyncEventGuard guard(gNfaGetConfigEvent);
+@@ -1227,11 +1307,13 @@ static jboolean nfcManager_doInitialize(JNIEnv* e, jobject o) {
+             }
+           }
+         }
+-
++#endif
+         prevScreenState = NFA_SCREEN_STATE_OFF_LOCKED;
+ 
+         // Do custom NFCA startup configuration.
++#if (NXP_EXTNS != TRUE)
+         doStartupConfig();
++#endif
+ #ifdef DTA_ENABLED
+         NfcDta::getInstance().setNfccConfigParams();
+ #endif /* DTA_ENABLED */
+@@ -1344,8 +1426,9 @@ static void nfcManager_enableDiscovery(JNIEnv* e, jobject o,
+     if (sPollingEnabled) {
+       DLOG_IF(INFO, nfc_debug_enabled)
+           << StringPrintf("%s: Enable p2pListening", __func__);
+-
++/*
+       if (enable_p2p && !sP2pEnabled) {
++
+         sP2pEnabled = true;
+         PeerToPeer::getInstance().enableP2pListening(true);
+         NFA_ResumeP2p();
+@@ -1354,8 +1437,10 @@ static void nfcManager_enableDiscovery(JNIEnv* e, jobject o,
+         PeerToPeer::getInstance().enableP2pListening(false);
+         NFA_PauseP2p();
+       }
+-
++*/
+       if (reader_mode && !sReaderModeEnabled) {
++#if (NXP_EXTNS != TRUE)
++        // TODO : Currently FW  is not supporting Listening mode. we will enable this later.
+         sReaderModeEnabled = true;
+         NFA_DisableListening();
+ 
+@@ -1363,14 +1448,16 @@ static void nfcManager_enableDiscovery(JNIEnv* e, jobject o,
+         nfcManager_configNfccConfigControl(false);
+ 
+         NFA_SetRfDiscoveryDuration(READER_MODE_DISCOVERY_DURATION);
++#endif
+       } else if (!reader_mode && sReaderModeEnabled) {
+         struct nfc_jni_native_data* nat = getNative(e, o);
+         sReaderModeEnabled = false;
+         NFA_EnableListening();
+ 
+         // configure NFCC_CONFIG_CONTROL- NFCC allowed to manage RF configuration.
++#if (NXP_EXTNS != TRUE)
+         nfcManager_configNfccConfigControl(true);
+-
++#endif
+         NFA_SetRfDiscoveryDuration(nat->discovery_duration);
+       }
+     }
+@@ -1394,13 +1481,15 @@ static void nfcManager_enableDiscovery(JNIEnv* e, jobject o,
+   }
+ 
+   // Check listen configuration
++#if (NXP_EXTNS != TRUE)
+   if (enable_host_routing) {
+-    RoutingManager::getInstance().enableRoutingToHost();
+-    RoutingManager::getInstance().commitRouting();
++  //  RoutingManager::getInstance().enableRoutingToHost();
++  //  RoutingManager::getInstance().commitRouting();
+   } else {
+     RoutingManager::getInstance().disableRoutingToHost();
+     RoutingManager::getInstance().commitRouting();
+   }
++#endif
+   // Actually start discovery.
+   startRfDiscovery(true);
+   sDiscoveryEnabled = true;
+@@ -1956,7 +2045,7 @@ static void nfcManager_doSetScreenState(JNIEnv* e, jobject o,
+     discovry_param =
+         NCI_LISTEN_DH_NFCEE_ENABLE_MASK | NCI_POLLING_DH_ENABLE_MASK;
+   }
+-
++#if 0
+   SyncEventGuard guard(gNfaSetConfigEvent);
+   status = NFA_SetConfig(NCI_PARAM_ID_CON_DISCOVERY_PARAM,
+                          NCI_PARAM_LEN_CON_DISCOVERY_PARAM, &discovry_param);
+@@ -1967,7 +2056,7 @@ static void nfcManager_doSetScreenState(JNIEnv* e, jobject o,
+                                __FUNCTION__);
+     return;
+   }
+-
++#endif
+   // skip remaining SetScreenState tasks when trying to silent recover NFCC
+   if (recovery_option && sIsRecovering) {
+     prevScreenState = state;
+@@ -2372,6 +2461,7 @@ void doStartupConfig() {
+   std::vector<uint8_t> polling_frequency;
+   if (NfcConfig::hasKey(NAME_POLL_FREQUENCY))
+     polling_frequency = NfcConfig::getBytes(NAME_POLL_FREQUENCY);
++
+   if (polling_frequency.size() == 8) {
+     DLOG_IF(INFO, nfc_debug_enabled)
+         << StringPrintf("%s: polling frequency", __func__);
+@@ -2415,28 +2505,11 @@ bool nfcManager_isNfcActive() { return sIsNfaEnabled; }
+ **
+ *******************************************************************************/
+ void startStopPolling(bool isStartPolling) {
+-  tNFA_STATUS status = NFA_STATUS_FAILED;
+-  uint8_t discovry_param = 0;
+   DLOG_IF(INFO, nfc_debug_enabled)
+       << StringPrintf("%s: enter; isStart=%u", __func__, isStartPolling);
+ 
+   if (NFC_GetNCIVersion() >= NCI_VERSION_2_0) {
+-    SyncEventGuard guard(gNfaSetConfigEvent);
+-    if (isStartPolling) {
+-      discovry_param =
+-          NCI_LISTEN_DH_NFCEE_ENABLE_MASK | NCI_POLLING_DH_ENABLE_MASK;
+-    } else {
+-      discovry_param =
+-          NCI_LISTEN_DH_NFCEE_ENABLE_MASK | NCI_POLLING_DH_DISABLE_MASK;
+-    }
+-    status = NFA_SetConfig(NCI_PARAM_ID_CON_DISCOVERY_PARAM,
+-                           NCI_PARAM_LEN_CON_DISCOVERY_PARAM, &discovry_param);
+-    if (status == NFA_STATUS_OK) {
+-      gNfaSetConfigEvent.wait();
+-    } else {
+-      LOG(ERROR) << StringPrintf("%s: Failed to update CON_DISCOVER_PARAM",
+-                                 __FUNCTION__);
+-    }
++    return;
+   } else {
+     startRfDiscovery(false);
+     if (isStartPolling)
+@@ -2495,4 +2568,33 @@ static tNFA_STATUS stopPolling_rfDiscoveryDisabled() {
+   return stat;
+ }
+ 
++/*******************************************************************************
++ **
++ ** Function:        getConfig
++ **
++ ** Description:     read the config values from NFC controller.
++ **
++ ** Returns:         SUCCESS/FAILURE
++ **
++ *******************************************************************************/
++tNFA_STATUS getConfig(uint16_t* rspLen, uint8_t* configValue, uint8_t numParam,
++                      tNFA_PMID* param) {
++  tNFA_STATUS status = NFA_STATUS_FAILED;
++  if (rspLen == NULL || configValue == NULL || param == NULL)
++    return NFA_STATUS_FAILED;
++  SyncEventGuard guard(gNfaGetConfigEvent);
++  status = NFA_GetConfig(numParam, param);
++  if (status == NFA_STATUS_OK) {
++    if (gNfaGetConfigEvent.wait(2000) == false) {
++      *rspLen = 0;
++    } else {
++      *rspLen = gCurrentConfigLen;
++      memcpy(configValue, gConfig, gCurrentConfigLen);
++    }
++  } else {
++    *rspLen = 0;
++  }
++  return status;
++}
++
+ } /* namespace android */
+diff --git a/nci/jni/NativeNfcTag.cpp b/nci/jni/NativeNfcTag.cpp
+index a99dc941..2d081b5f 100644
+--- a/nci/jni/NativeNfcTag.cpp
++++ b/nci/jni/NativeNfcTag.cpp
+@@ -13,7 +13,23 @@
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  */
+-
++/******************************************************************************
++ *
++ *  Copyright 2022-2023 NXP
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ ******************************************************************************/
+ #include <android-base/stringprintf.h>
+ #include <base/logging.h>
+ #include <errno.h>
+@@ -37,7 +53,9 @@
+ #include "nfc_brcm_defs.h"
+ #include "phNxpExtns.h"
+ #include "rw_api.h"
+-
++#if (NXP_EXTNS == TRUE)
++#include "NfcTagExtns.h"
++#endif
+ using android::base::StringPrintf;
+ 
+ namespace android {
+@@ -99,7 +117,11 @@ static bool sIsReadingNdefMessage = false;
+ static SyncEvent sReadEvent;
+ static sem_t sWriteSem;
+ static sem_t sFormatSem;
++#if (NXP_EXTNS == TRUE)
++SyncEvent sTransceiveEvent;
++#else
+ static SyncEvent sTransceiveEvent;
++#endif
+ static SyncEvent sReconnectEvent;
+ static sem_t sCheckNdefSem;
+ static SyncEvent sPresenceCheckEvent;
+@@ -111,6 +133,10 @@ uint8_t RW_DESELECT_REQ[] = {0xC2};
+ static jboolean sWriteOk = JNI_FALSE;
+ static jboolean sWriteWaitingForComplete = JNI_FALSE;
+ static bool sFormatOk = false;
++static bool sIsCheckingNDef = false;
++#if (NXP_EXTNS == TRUE)
++static uint8_t Presence_check_TypeB[] = {0xB2};
++#endif
+ static jboolean sConnectOk = JNI_FALSE;
+ static jboolean sConnectWaitingForComplete = JNI_FALSE;
+ static bool sGotDeactivate = false;
+@@ -162,6 +188,11 @@ void nativeNfcTag_abortWaits() {
+   sCurrentActivatedProtocl = NFA_INTERFACE_ISO_DEP;
+   sCurrentConnectedTargetType = TARGET_TYPE_UNKNOWN;
+   sCurrentConnectedTargetProtocol = NFC_PROTOCOL_UNKNOWN;
++#if (NXP_EXTNS == TRUE)
++  NfcTag& natTag = NfcTag::getInstance();
++  natTag.mCurrentRequestedProtocol = NFC_PROTOCOL_UNKNOWN;
++  NfcTagExtns::getInstance().abortTagOperation();
++#endif
+ }
+ 
+ /*******************************************************************************
+@@ -179,7 +210,15 @@ void nativeNfcTag_doReadCompleted(tNFA_STATUS status) {
+   DLOG_IF(INFO, nfc_debug_enabled)
+       << StringPrintf("%s: status=0x%X; is reading=%u", __func__, status,
+                       sIsReadingNdefMessage);
+-
++#if (NXP_EXTNS == TRUE)
++  if (status == NFA_STATUS_TIMEOUT) {
++  tNFA_STATUS nfaStat = NFA_STATUS_OK;
++    nfaStat = NFA_Deactivate(FALSE);
++    if (nfaStat != NFA_STATUS_OK)
++      LOG(ERROR) << StringPrintf("%s: deactivate failed; error=0x%X", __func__,
++                                 nfaStat);
++  }
++#endif
+   if (sIsReadingNdefMessage == false)
+     return;  // not reading NDEF message right now, so just return
+ 
+@@ -204,7 +243,20 @@ void nativeNfcTag_doReadCompleted(tNFA_STATUS status) {
+ void nativeNfcTag_setRfInterface(tNFA_INTF_TYPE rfInterface) {
+   sCurrentRfInterface = rfInterface;
+ }
+-
++#if (NXP_EXTNS == TRUE)
++/*******************************************************************************
++ **
++ ** Function:        nativeNfcTag_setTransceiveFlag
++ **
++ ** Description:     Set transceive state.
++ **
++ ** Returns:         None
++ **
++ *******************************************************************************/
++void nativeNfcTag_setTransceiveFlag(bool state) {
++  sWaitingForTransceive = state;
++}
++#endif
+ /*******************************************************************************
+  **
+  ** Function:        nativeNfcTag_setActivatedRfProtocol
+@@ -576,9 +628,28 @@ static jint nativeNfcTag_doConnect(JNIEnv*, jobject, jint targetHandle) {
+     goto TheEnd;
+   }
+ 
++  #if (NXP_EXTNS == TRUE)
++  sCurrentConnectedHandle = targetHandle;
++  if (sCurrentConnectedTargetProtocol == NFC_PROTOCOL_T3BT) {
++    goto TheEnd;
++  }
++#endif
++
+   sCurrentConnectedTargetType = natTag.mTechList[i];
+   sCurrentConnectedTargetProtocol = natTag.mTechLibNfcTypes[i];
+   sCurrentConnectedHandle = targetHandle;
++#if (NXP_EXTNS == TRUE)
++  LOG(ERROR)<< StringPrintf("%s:  doConnect sCurrentConnectedTargetProtocol %x sCurrentConnectedTargetType %x",
++            __func__,sCurrentConnectedTargetProtocol,sCurrentConnectedTargetType);
++  natTag.mCurrentRequestedProtocol = sCurrentConnectedTargetProtocol;
++  NfcTagExtns::getInstance().setCurrentTargetType(sCurrentConnectedTargetType);
++  if(sCurrentConnectedTargetProtocol == NFC_PROTOCOL_T3BT) {
++    goto TheEnd;
++  }
++#endif
++  DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
++        "%s: TargetType=%d, TargetProtocol=%d", __func__,
++        sCurrentConnectedTargetType, sCurrentConnectedTargetProtocol);
+ 
+   if (sCurrentConnectedTargetProtocol != NFC_PROTOCOL_ISO_DEP &&
+       sCurrentConnectedTargetProtocol != NFC_PROTOCOL_MIFARE) {
+@@ -591,14 +662,16 @@ static jint nativeNfcTag_doConnect(JNIEnv*, jobject, jint targetHandle) {
+ 
+   if (sCurrentConnectedTargetType == TARGET_TYPE_ISO14443_3A ||
+       sCurrentConnectedTargetType == TARGET_TYPE_ISO14443_3B) {
+-
+-      if (sCurrentConnectedTargetProtocol != NFC_PROTOCOL_MIFARE) {
+-        DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
+-        "%s: switching to tech: %d need to switch rf intf to frame", __func__,
+-        sCurrentConnectedTargetType);
+-        retCode = switchRfInterface(NFA_INTERFACE_FRAME) ? NFA_STATUS_OK
+-                                                         : NFA_STATUS_FAILED;
+-      }
++#if (NXP_EXTNS != TRUE)
++    if (sCurrentConnectedTargetProtocol != NFC_PROTOCOL_MIFARE)
++#endif
++    {
++      DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
++          "%s: switching to tech: %d need to switch rf intf to frame", __func__,
++          sCurrentConnectedTargetType);
++      retCode = switchRfInterface(NFA_INTERFACE_FRAME) ? NFA_STATUS_OK
++                                                       : NFA_STATUS_FAILED;
++    }
+   } else if (sCurrentConnectedTargetType == TARGET_TYPE_MIFARE_CLASSIC) {
+     retCode = switchRfInterface(NFA_INTERFACE_MIFARE) ? NFA_STATUS_OK
+                                                       : NFA_STATUS_FAILED;
+@@ -636,7 +709,10 @@ static int reSelect(tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded) {
+     sRfInterfaceMutex.unlock();
+     return 0;  // success
+   }
+-
++#if (NXP_EXTNS == TRUE)
++  tTagStatus tagStat = NfcTagExtns::TAG_STATUS_STANDARD;
++  NfcTagExtns& nfcTagExtns = NfcTagExtns::getInstance();
++#endif
+   NfcTag& natTag = NfcTag::getInstance();
+ 
+   tNFA_STATUS status = NFA_STATUS_OK;
+@@ -654,11 +730,23 @@ static int reSelect(tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded) {
+         (NFC_GetNCIVersion() >= NCI_VERSION_2_0)) {
+       {
+         SyncEventGuard g3(sReconnectEvent);
+-        if (sCurrentActivatedProtocl == NFA_PROTOCOL_T2T) {
+-          status = NFA_SendRawFrame(RW_TAG_SLP_REQ, sizeof(RW_TAG_SLP_REQ), 0);
+-        } else if (sCurrentActivatedProtocl == NFA_PROTOCOL_ISO_DEP) {
+-          status = NFA_SendRawFrame(RW_DESELECT_REQ,
+-                                    sizeof(RW_DESELECT_REQ), 0);
++
++        if (sCurrentActivatedProtocl == NFC_PROTOCOL_UNKNOWN) {
++          if (nfcTagExtns.processNonStdTagOperation(
++                  TAG_API_REQUEST::TAG_RESELECT_API,
++                  TAG_OPERATION::TAG_HALT_PICC_OPERATION) !=
++              NfcTagExtns::TAG_STATUS_SUCCESS) {
++            LOG(ERROR) << StringPrintf("%s: TAG_HALT_PICC_OPERATION failed",
++                                       __func__);
++          }
++        } else {
++          if (sCurrentActivatedProtocl == NFA_PROTOCOL_T2T) {
++            status =
++                NFA_SendRawFrame(RW_TAG_SLP_REQ, sizeof(RW_TAG_SLP_REQ), 0);
++          } else if (sCurrentActivatedProtocl == NFA_PROTOCOL_ISO_DEP) {
++            status =
++                NFA_SendRawFrame(RW_DESELECT_REQ, sizeof(RW_DESELECT_REQ), 0);
++          }
+         }
+         sReconnectEvent.wait(4);
+         if (status != NFA_STATUS_OK) {
+@@ -672,6 +760,19 @@ static int reSelect(tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded) {
+       SyncEventGuard g(sReconnectEvent);
+       gIsTagDeactivating = true;
+       sGotDeactivate = false;
++#if (NXP_EXTNS == TRUE)
++      tagStat = nfcTagExtns.processNonStdTagOperation(
++          TAG_API_REQUEST::TAG_RESELECT_API,
++          TAG_OPERATION::TAG_DEACTIVATE_OPERATION);
++      if (tagStat == NfcTagExtns::TAG_STATUS_FAILED ||
++          tagStat == NfcTagExtns::TAG_STATUS_LOST) {
++        LOG(ERROR) << StringPrintf("%s: TAG_DEACTIVATE_OPERATION = %d",
++                                   __func__, tagStat);
++        if (tagStat == NfcTagExtns::TAG_STATUS_LOST)
++          rVal = STATUS_CODE_TARGET_LOST;
++        break;
++      }  // Tag is standard
++#else
+       DLOG_IF(INFO, nfc_debug_enabled)
+           << StringPrintf("%s: deactivate to sleep", __func__);
+       if (NFA_STATUS_OK !=
+@@ -681,7 +782,7 @@ static int reSelect(tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded) {
+                                    __func__, status);
+         break;
+       }
+-
++#endif
+       if (sReconnectEvent.wait(1000) == false)  // if timeout occurred
+       {
+         LOG(ERROR) << StringPrintf("%s: timeout waiting for deactivate",
+@@ -689,26 +790,46 @@ static int reSelect(tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded) {
+       }
+     }
+ 
+-    if (!sGotDeactivate) {
++/*    if (!sGotDeactivate) {
+       rVal = STATUS_CODE_TARGET_LOST;
+       break;
+-    }
+-
++    }*/
++#if (NXP_EXTNS == TRUE)
++    // If multiprotocol then break, else continue..
++    tagStat = nfcTagExtns.processNonStdTagOperation(
++        TAG_API_REQUEST::TAG_RESELECT_API,
++        TAG_OPERATION::TAG_DEACTIVATE_RSP_OPERATION);
++    if (tagStat == NfcTagExtns::TAG_STATUS_LOST) {
++      rVal = STATUS_CODE_TARGET_LOST;
++      break;
++    } else if (tagStat == NfcTagExtns::TAG_STATUS_STANDARD) {
++#endif
+     if (NfcTag::getInstance().getActivationState() != NfcTag::Sleep) {
+       LOG(ERROR) << StringPrintf("%s: tag is not in sleep", __func__);
+       rVal = STATUS_CODE_TARGET_LOST;
+       break;
+     }
+-
++#if (NXP_EXTNS == TRUE)
++    }
++#endif
+     gIsTagDeactivating = false;
+ 
+     {
+       SyncEventGuard g2(sReconnectEvent);
+ 
+       sConnectWaitingForComplete = JNI_TRUE;
++      gIsSelectingRfInterface = true;
++#if (NXP_EXTNS == TRUE)
++      // If status failed break, If cashbee skip NFA_Select
++      tagStat = nfcTagExtns.processNonStdTagOperation(
++          TAG_API_REQUEST::TAG_RESELECT_API,
++          TAG_OPERATION::TAG_RECONNECT_OPERATION);
++      if (tagStat == NfcTagExtns::TAG_STATUS_FAILED) break;
++      if (tagStat == NfcTagExtns::TAG_STATUS_STANDARD) {
++#endif
+       DLOG_IF(INFO, nfc_debug_enabled)
+           << StringPrintf("%s: select interface %u", __func__, rfInterface);
+-      gIsSelectingRfInterface = true;
++
+       if (NFA_STATUS_OK !=
+           (status = NFA_Select(natTag.mTechHandles[sCurrentConnectedHandle],
+                                natTag.mTechLibNfcTypes[sCurrentConnectedHandle],
+@@ -717,11 +838,21 @@ static int reSelect(tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded) {
+                                    __func__, status);
+         break;
+       }
+-
++#if (NXP_EXTNS == TRUE)
++      }
++#endif
+       sConnectOk = false;
+       if (sReconnectEvent.wait(1000) == false)  // if timeout occurred
+       {
+         LOG(ERROR) << StringPrintf("%s: timeout waiting for select", __func__);
++#if (NXP_EXTNS == TRUE)
++        if (nfcTagExtns.processNonStdTagOperation(
++                TAG_API_REQUEST::TAG_RESELECT_API,
++                TAG_OPERATION::TAG_RECONNECT_FAILED_OPERATION) !=
++            NfcTagExtns::TAG_STATUS_STANDARD)
++          DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
++              "%s: Non-standard reconnect %u", __func__, rfInterface);
++#endif
+         break;
+       }
+     }
+@@ -732,6 +863,9 @@ static int reSelect(tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded) {
+                                  __func__);
+       int retry = 0;
+       sConnectWaitingForComplete = JNI_TRUE;
++#if (NXP_EXTNS == TRUE)
++      if (!nfcTagExtns.isNonStdMFCTagDetected()) {
++#endif
+       do {
+         SyncEventGuard reselectEvent(sReconnectEvent);
+         if (sReconnectEvent.wait(500) == false) {  // if timeout occurred
+@@ -741,18 +875,28 @@ static int reSelect(tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded) {
+         LOG(ERROR) << StringPrintf("%s: waiting for Card to be activated %x %x",
+                                    __func__, retry, sConnectOk);
+       } while (sConnectOk == false && retry < 3);
++#if (NXP_EXTNS == TRUE)
++      }
++      if (NfcTag::getInstance().getNumDiscNtf())
++        NfcTag::getInstance().setNumDiscNtf(0);
++#endif
+     }
+ 
+     DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
+         "%s: select completed; sConnectOk=%d", __func__, sConnectOk);
+     if (NfcTag::getInstance().getActivationState() != NfcTag::Active) {
+       LOG(ERROR) << StringPrintf("%s: tag is not active", __func__);
++#if (NXP_EXTNS == TRUE)
++      NfcTag::getInstance().connectionEventHandler(NFA_DEACTIVATED_EVT, NULL);
++#endif
+       rVal = STATUS_CODE_TARGET_LOST;
+       break;
+     }
+     if (sConnectOk) {
+       rVal = 0;  // success
++#if (NXP_EXTNS != TRUE)
+       sCurrentRfInterface = rfInterface;
++#endif
+     } else {
+       rVal = 1;
+     }
+@@ -761,6 +905,14 @@ static int reSelect(tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded) {
+   sConnectWaitingForComplete = JNI_FALSE;
+   gIsTagDeactivating = false;
+   gIsSelectingRfInterface = false;
++#if (NXP_EXTNS == TRUE)
++  if (nfcTagExtns.processNonStdTagOperation(
++          TAG_API_REQUEST::TAG_RESELECT_API,
++          TAG_OPERATION::TAG_CLEAR_STATE_OPERATION) ==
++      NfcTagExtns::TAG_STATUS_SUCCESS)
++    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
++        "%s: clear Non-std tag state; status=%d", __func__, rVal);
++#endif
+   sRfInterfaceMutex.unlock();
+   DLOG_IF(INFO, nfc_debug_enabled)
+       << StringPrintf("%s: exit; status=%d", __func__, rVal);
+@@ -1230,6 +1382,30 @@ static jint nativeNfcTag_doCheckNdef(JNIEnv* e, jobject o, jintArray ndefInfo) {
+ 
+   DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: enter", __func__);
+ 
++  sIsCheckingNDef = true;
++#if (NXP_EXTNS == TRUE)
++  if (sCurrentConnectedTargetProtocol == NFA_PROTOCOL_T3BT) {
++    ndef = e->GetIntArrayElements(ndefInfo, 0);
++    ndef[0] = 0;
++    ndef[1] = NDEF_MODE_READ_ONLY;
++    e->ReleaseIntArrayElements(ndefInfo, ndef, 0);
++    sIsCheckingNDef = false;
++    return NFA_STATUS_FAILED;
++  }
++#endif
++
++#if (NXP_EXTNS == TRUE)
++  if (NfcTagExtns::getInstance().processNonStdTagOperation(
++          TAG_API_REQUEST::TAG_CHECK_NDEF_API, TAG_OPERATION::TAG_SKIP_NDEF) !=
++      NfcTagExtns::TAG_STATUS_STANDARD) {
++    ndef = e->GetIntArrayElements (ndefInfo, 0);
++    ndef[0] = 0;
++    ndef[1] = NDEF_MODE_READ_ONLY;
++    e->ReleaseIntArrayElements (ndefInfo, ndef, 0);
++    return NFA_STATUS_FAILED;
++  }
++#endif
++
+   // special case for Kovio
+   if (sCurrentConnectedTargetProtocol == TARGET_TYPE_KOVIO_BARCODE) {
+     DLOG_IF(INFO, nfc_debug_enabled)
+@@ -1372,6 +1548,7 @@ static jboolean nativeNfcTag_doPresenceCheck(JNIEnv*, jobject) {
+   DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s", __func__);
+   tNFA_STATUS status = NFA_STATUS_OK;
+   jboolean isPresent = JNI_FALSE;
++  int handle = sCurrentConnectedHandle;
+ 
+   // Special case for Kovio.  The deactivation would have already occurred
+   // but was ignored so that normal tag opertions could complete.  Now we
+@@ -1414,6 +1591,41 @@ static jboolean nativeNfcTag_doPresenceCheck(JNIEnv*, jobject) {
+         << StringPrintf("%s: tag already deactivated", __func__);
+     return JNI_FALSE;
+   }
++
++  #if (NXP_EXTNS == TRUE)
++  if (NfcTag::getInstance().mTechLibNfcTypes[handle] == NFA_PROTOCOL_T3BT) {
++    uint8_t* pbuf = NULL;
++    uint8_t bufLen = 0x00;
++    bool waitOk = false;
++    int timeout =
++        NfcTag::getInstance().getTransceiveTimeout(sCurrentConnectedTargetType);
++    DLOG_IF(INFO, nfc_debug_enabled)
++        << StringPrintf("%s: enter; timeout = %d", __func__, timeout);
++
++    SyncEventGuard g(sTransceiveEvent);
++    sTransceiveRfTimeout = false;
++    sWaitingForTransceive = true;
++    // sTransceiveDataLen = 0;
++    bufLen = (uint8_t)sizeof(Presence_check_TypeB);
++    pbuf = Presence_check_TypeB;
++    // memcpy(pbuf, Attrib_cmd_TypeB, bufLen);
++    status = NFA_SendRawFrame(pbuf, bufLen,
++                              NFA_DM_DEFAULT_PRESENCE_CHECK_START_DELAY);
++    if (status != NFA_STATUS_OK) {
++      LOG(ERROR) << StringPrintf("%s: fail send; error=%d", __func__, status);
++    } else
++      waitOk = sTransceiveEvent.wait(timeout);
++
++    if (waitOk == false || sTransceiveRfTimeout)  // if timeout occurred
++    {
++      return JNI_FALSE;
++      ;
++    } else {
++      return JNI_TRUE;
++    }
++  }
++#endif
++#if (NXP_EXTNS == TRUE)
+   if (sCurrentConnectedTargetProtocol == NFC_PROTOCOL_MIFARE && legacy_mfc_reader) {
+     status = EXTNS_MfcPresenceCheck();
+     if (status == NFCSTATUS_SUCCESS) {
+@@ -1421,7 +1633,30 @@ static jboolean nativeNfcTag_doPresenceCheck(JNIEnv*, jobject) {
+                                                                    : JNI_FALSE;
+     }
+   }
++#endif
+ 
++#if (NXP_EXTNS == TRUE)
++  if(NfcTag::getInstance ().mTechLibNfcTypes[0] == NFA_PROTOCOL_T3BT) {
++    uint8_t T3btPresenceCheckCmd[] = {0xB2};
++    uint8_t bufLen = 0x00;
++    bool waitOk = false;
++
++    SyncEventGuard g (sTransceiveEvent);
++    sTransceiveRfTimeout = false;
++    sWaitingForTransceive = true;
++    bufLen = (uint8_t) sizeof(T3btPresenceCheckCmd);
++    status = NFA_SendRawFrame (T3btPresenceCheckCmd, bufLen, NFA_DM_DEFAULT_PRESENCE_CHECK_START_DELAY);
++    if (status != NFA_STATUS_OK) {
++      DLOG_IF(ERROR, nfc_debug_enabled) << StringPrintf("%s: fail send; error=%d", __func__, status);
++    } else
++      waitOk = sTransceiveEvent.wait (NfcTag::getInstance().getTransceiveTimeout(TARGET_TYPE_ISO14443_3B));
++    if (waitOk == false || sTransceiveRfTimeout) { //if timeout occurred
++      return JNI_FALSE;;
++    } else {
++      return JNI_TRUE;
++    }
++  }
++#endif
+   {
+     SyncEventGuard guard(sPresenceCheckEvent);
+     status =
+diff --git a/nci/jni/NativeNxpFeature.cpp b/nci/jni/NativeNxpFeature.cpp
+new file mode 100755
+index 00000000..753fcab3
+--- /dev/null
++++ b/nci/jni/NativeNxpFeature.cpp
+@@ -0,0 +1,339 @@
++/*
++ * Copyright (C) 2012 The Android Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++/******************************************************************************
++ *
++ *  The original Work has been changed by NXP
++ *
++ *  Copyright 2015-2020 NXP
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ ******************************************************************************/
++#include <android-base/stringprintf.h>
++#include <base/logging.h>
++#include <errno.h>
++#include <semaphore.h>
++#include "JavaClassConstants.h"
++#include "NfcAdaptation.h"
++#include "NfcJniUtil.h"
++#include "RoutingManager.h"
++#include "SyncEvent.h"
++#include "config.h"
++#include "nfc_config.h"
++#include "nfa_api.h"
++#include "nfa_rw_api.h"
++
++#if (NXP_EXTNS == TRUE)
++using android::base::StringPrintf;
++
++extern bool nfc_debug_enabled;
++
++typedef struct nxp_feature_data {
++  SyncEvent NxpFeatureConfigEvt;
++  Mutex mMutex;
++  tNFA_STATUS wstatus;
++  uint8_t rsp_data[255];
++  uint8_t rsp_len;
++} Nxp_Feature_Data_t;
++
++typedef enum {
++  NCI_OID_SYSTEM_DEBUG_STATE_L1_MESSAGE = 0x35,
++  NCI_OID_SYSTEM_DEBUG_STATE_L2_MESSAGE,
++  NCI_OID_SYSTEM_DEBUG_STATE_L3_MESSAGE,
++} eNciSystemPropOpcodeIdentifier_t;
++
++namespace android {
++extern nfc_jni_native_data* getNative(JNIEnv* e, jobject o);
++static Nxp_Feature_Data_t gnxpfeature_conf;
++void SetCbStatus(tNFA_STATUS status);
++tNFA_STATUS GetCbStatus(void);
++static void NxpResponse_Cb(uint8_t event, uint16_t param_len, uint8_t* p_param);
++}  // namespace android
++
++namespace android {
++extern bool suppressLogs;
++void SetCbStatus(tNFA_STATUS status) { gnxpfeature_conf.wstatus = status; }
++
++tNFA_STATUS GetCbStatus(void) { return gnxpfeature_conf.wstatus; }
++
++void NxpPropCmd_OnResponseCallback(uint8_t event, uint16_t param_len,
++                                   uint8_t *p_param) {
++  DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
++    "NxpPropCmd_OnResponseCallback: Received length data = 0x%x status = "
++        "0x%x", param_len, p_param[3]);
++  uint8_t oid = p_param[1];
++  uint8_t status = NFA_STATUS_FAILED;
++
++  switch (oid) {
++  case (0x03):
++  /*FALL_THRU*/
++  case (0x1A):
++  /*FALL_THRU*/
++  case (0x1C):
++    status = p_param[3];
++    break;
++  case (0x1B):
++    status = p_param[param_len - 1];
++    break;
++  default:
++    LOG(ERROR) << StringPrintf("Propreitary Rsp: OID is not supported");
++    break;
++  }
++
++  android::SetCbStatus(status);
++
++  android::gnxpfeature_conf.rsp_len = (uint8_t)param_len;
++  memcpy(android::gnxpfeature_conf.rsp_data, p_param, param_len);
++  SyncEventGuard guard(android::gnxpfeature_conf.NxpFeatureConfigEvt);
++  android::gnxpfeature_conf.NxpFeatureConfigEvt.notifyOne();
++}
++
++tNFA_STATUS NxpPropCmd_send(uint8_t *pData4Tx, uint8_t dataLen,
++                            uint8_t *rsp_len, uint8_t *rsp_buf,
++                            uint32_t rspTimeout, tHAL_NFC_ENTRY *halMgr) {
++  tNFA_STATUS status = NFA_STATUS_FAILED;
++  bool retVal = false;
++
++  DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: prop cmd being txed", __func__);
++
++  gnxpfeature_conf.mMutex.lock();
++
++  android::SetCbStatus(NFA_STATUS_FAILED);
++  SyncEventGuard guard(android::gnxpfeature_conf.NxpFeatureConfigEvt);
++
++  status =
++      NFA_SendRawVsCommand(dataLen, pData4Tx, NxpPropCmd_OnResponseCallback);
++  if (status == NFA_STATUS_OK) {
++    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: Success NFA_SendNxpNciCommand", __func__);
++
++    retVal = android::gnxpfeature_conf.NxpFeatureConfigEvt.wait(
++        rspTimeout); /* wait for callback */
++    if (retVal == false) {
++      android::SetCbStatus(NFA_STATUS_TIMEOUT);
++      android::gnxpfeature_conf.rsp_len = 0;
++      memset(android::gnxpfeature_conf.rsp_data, 0,
++             sizeof(android::gnxpfeature_conf.rsp_data));
++    }
++  } else {
++    LOG(ERROR) << StringPrintf("%s: Failed NFA_SendNxpNciCommand", __func__);
++  }
++  status = android::GetCbStatus();
++  if ((android::gnxpfeature_conf.rsp_len > 3) && (rsp_buf != NULL)) {
++    *rsp_len = android::gnxpfeature_conf.rsp_len - 3;
++    memcpy(rsp_buf, android::gnxpfeature_conf.rsp_data + 3,
++           android::gnxpfeature_conf.rsp_len - 3);
++  }
++  android::gnxpfeature_conf.mMutex.unlock();
++  return status;
++}
++
++static void NxpResponse_Cb(uint8_t event, uint16_t param_len,
++                           uint8_t* p_param) {
++  (void)event;
++  DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
++      "NxpResponse_Cb Received length data = 0x%x status = 0x%x", param_len,
++      p_param[3]);
++  if (p_param != NULL) {
++    if (p_param[3] == 0x00) {
++      SetCbStatus(NFA_STATUS_OK);
++    } else {
++      SetCbStatus(NFA_STATUS_FAILED);
++    }
++    gnxpfeature_conf.rsp_len = (uint8_t)param_len;
++    if (param_len > 0) {
++      memcpy(gnxpfeature_conf.rsp_data, p_param, param_len);
++    }
++    SyncEventGuard guard(gnxpfeature_conf.NxpFeatureConfigEvt);
++    gnxpfeature_conf.NxpFeatureConfigEvt.notifyOne();
++  }
++}
++
++
++/*******************************************************************************
++ **
++ ** Function:        NxpNfc_Write_Cmd()
++ **
++ ** Description:     Writes the command to NFCC
++ **
++ ** Returns:         success/failure
++ **
++ *******************************************************************************/
++tNFA_STATUS NxpNfc_Write_Cmd_Common(uint8_t retlen, uint8_t* buffer) {
++  tNFA_STATUS status = NFA_STATUS_FAILED;
++  SetCbStatus(NFA_STATUS_FAILED);
++  SyncEventGuard guard(gnxpfeature_conf.NxpFeatureConfigEvt);
++  status = NFA_SendRawVsCommand(retlen, buffer, NxpResponse_Cb);
++  if (status == NFA_STATUS_OK) {
++    DLOG_IF(INFO, nfc_debug_enabled)
++        << StringPrintf("%s: Success NFA_SendRawVsCommand", __func__);
++    gnxpfeature_conf.NxpFeatureConfigEvt.wait(); /* wait for callback */
++  } else {
++    LOG(ERROR) << StringPrintf("%s: Failed NFA_SendRawVsCommand", __func__);
++  }
++  status = GetCbStatus();
++  return status;
++}
++/*******************************************************************************
++ **
++ ** Function:        getNumValue()
++ **
++ ** Description:     get the value from th config file.
++ **
++ ** Returns:         success/failure
++ **
++ *******************************************************************************/
++uint32_t getNumValue(const char* key ,uint32_t value) {
++  return NfcConfig::getUnsigned(key, value);
++}
++
++/*******************************************************************************
++ **
++ ** Function:        send_flush_ram_to_flash
++ **
++ ** Description:     This is used to update ram to flash command to NFCC.
++ **                  This will write the contents of RAM to FLASH.This will
++ **                  be sent only one time after NFC init.
++ **
++ ** Returns:         NFA_STATUS_OK on success
++ **www
++ *******************************************************************************/
++tNFA_STATUS send_flush_ram_to_flash() {
++  DLOG_IF(INFO, nfc_debug_enabled)
++    << StringPrintf("%s: enter", __func__);
++  tNFA_STATUS status = NFA_STATUS_OK;
++  uint8_t  cmd[] = {0x2F, 0x21, 0x00};
++
++  status = NxpNfc_Write_Cmd_Common(sizeof(cmd), cmd);
++  if(status != NFA_STATUS_OK) {
++    DLOG_IF(ERROR, nfc_debug_enabled)
++      << StringPrintf("%s: send_flush_ram_to_flash sending status %x", __func__,status);
++  }
++  return status;
++}
++/*******************************************************************************
++ **
++ ** Function:        enableDisableLog(bool type)
++ **
++ ** Description:     This function is used to enable/disable the
++ **                  logging module for cmd/data exchanges.
++ **
++ ** Returns:         None
++ **
++ *******************************************************************************/
++void enableDisableLog(bool type) {
++  // static bool prev_trace_level = nfc_debug_enabled;
++
++  // NfcAdaptation& theInstance = NfcAdaptation::GetInstance();
++
++  // if (android::suppressLogs) {
++  //   if (true == type) {
++  //     if (nfc_debug_enabled != prev_trace_level) {
++  //       nfc_debug_enabled = prev_trace_level;
++  //       theInstance.HalSetProperty("nfc.debug_enabled", "1");
++  //     }
++  //   } else if (false == type) {
++  //     if (0 != nfc_debug_enabled) {
++  //       nfc_debug_enabled = 0;
++  //       theInstance.HalSetProperty("nfc.debug_enabled", "0");
++  //     }
++  //   }
++  // }
++}
++
++/*******************************************************************************
++**
++** Function:        nfaVSCNtfCallback
++**
++** Description:     Receives LxDebug events from stack.
++**                  Event: for which the callback is invoked
++**                  param_len: Len of the Parameters passed
++**                  p_param: Pointer to the event param
++**
++** Returns:         None
++**
++*******************************************************************************/
++void nfaVSCNtfCallback(uint8_t event, uint16_t param_len, uint8_t *p_param) {
++  (void)event;
++  DLOG_IF(INFO, nfc_debug_enabled)
++          << StringPrintf("%s: event = 0x%02X", __func__, event);
++  uint8_t op_code = (event & ~NCI_NTF_BIT);
++  uint32_t len;
++  uint8_t nciHdrLen = 3;
++
++  if(!p_param || param_len <= nciHdrLen) {
++    LOG(ERROR) << "Invalid Params. returning...";
++    return;
++  }
++
++  switch(op_code) {
++    case NCI_OID_SYSTEM_DEBUG_STATE_L1_MESSAGE:
++    break;
++
++    case NCI_OID_SYSTEM_DEBUG_STATE_L2_MESSAGE:
++      len = param_len - nciHdrLen;
++    {
++      struct nfc_jni_native_data* mNativeData = getNative(NULL, NULL);
++      JNIEnv* e = NULL;
++      ScopedAttach attach(mNativeData->vm, &e);
++      if (e == NULL) {
++        LOG(ERROR) << "jni env is null";
++        return;
++      }
++
++      jbyteArray retArray = e->NewByteArray(len);
++
++      if((uint32_t)e->GetArrayLength(retArray) != len)
++      {
++        e->DeleteLocalRef(retArray);
++        retArray = e->NewByteArray(len);
++      }
++      e->SetByteArrayRegion(retArray, 0, len, (jbyte*)(p_param + nciHdrLen));
++
++      // e->CallVoidMethod(mNativeData->manager,
++      //                 android::gCachedNfcManagerNotifyLxDebugInfo,
++      //                 (int)len, retArray);
++      if (e->ExceptionCheck()) {
++        e->ExceptionClear();
++        LOG(ERROR) << "fail notify";
++      }
++    }
++    break;
++
++    case NCI_OID_SYSTEM_DEBUG_STATE_L3_MESSAGE:
++    break;
++
++    default:
++      DLOG_IF(INFO, nfc_debug_enabled)
++          << StringPrintf("%s: unknown event ????", __func__);
++    break;
++  }
++  DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: Exit", __func__);
++}
++
++
++} /*namespace android*/
++
++#endif
+diff --git a/nci/jni/NfcTag.cpp b/nci/jni/NfcTag.cpp
+index e161e7f3..569f87f3 100755
+--- a/nci/jni/NfcTag.cpp
++++ b/nci/jni/NfcTag.cpp
+@@ -13,7 +13,23 @@
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  */
+-
++/******************************************************************************
++ *
++ *  Copyright 2022-2023 NXP
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ ******************************************************************************/
+ /*
+  *  Tag-reading, tag-writing operations.
+  */
+@@ -30,6 +46,9 @@
+ #include "nfc_config.h"
+ #include "phNxpExtns.h"
+ #include "rw_int.h"
++#if (NXP_EXTNS == TRUE)
++#include "NfcTagExtns.h"
++#endif
+ 
+ using android::base::StringPrintf;
+ 
+@@ -37,7 +56,11 @@ extern bool nfc_debug_enabled;
+ static void deleteglobaldata(JNIEnv* e);
+ static jobjectArray sTechPollBytes;
+ static jobjectArray gtechActBytes;
++#if (NXP_EXTNS == TRUE)
++int sLastSelectedTagId = 0;
++#else
+ static int sLastSelectedTagId = 0;
++#endif
+ 
+ /*******************************************************************************
+ **
+@@ -49,7 +72,13 @@ static int sLastSelectedTagId = 0;
+ **
+ *******************************************************************************/
+ NfcTag::NfcTag()
+-    : mNumTechList(0),
++    : mNumDiscNtf(0),
++      mNumTechList(0),
++#if (NXP_EXTNS == TRUE)
++      mTechListIndex(0),
++      mIsMultiProtocolTag(false),
++      mCurrentRequestedProtocol(NFC_PROTOCOL_UNKNOWN),
++#endif
+       mTechnologyTimeoutsTable(MAX_NUM_TECHNOLOGY),
+       mNativeData(NULL),
+       mIsActivated(false),
+@@ -62,10 +91,8 @@ NfcTag::NfcTag()
+       mIsDynamicTagId(false),
+       mPresenceCheckAlgorithm(NFA_RW_PRES_CHK_DEFAULT),
+       mIsFelicaLite(false),
+-      mNumDiscNtf(0),
+       mNumDiscTechList(0),
+-      mTechListTail(0),
+-      mIsMultiProtocolTag(false) {
++      mTechListTail(0) {
+   memset(mTechList, 0, sizeof(mTechList));
+   memset(mTechHandles, 0, sizeof(mTechHandles));
+   memset(mTechLibNfcTypes, 0, sizeof(mTechLibNfcTypes));
+@@ -103,6 +130,12 @@ void NfcTag::initialize(nfc_jni_native_data* native) {
+   mIsActivated = false;
+   mActivationState = Idle;
+   mProtocol = NFC_PROTOCOL_UNKNOWN;
++#if (NXP_EXTNS == TRUE)
++  mNumDiscNtf = 0;
++  mNumDiscTechList = 0;
++  mTechListIndex = 0;
++  NfcTagExtns::getInstance().initialize();
++#endif
+   mtT1tMaxMessageSize = 0;
+   mReadCompletedStatus = NFA_STATUS_OK;
+   resetTechnologies();
+@@ -173,7 +206,23 @@ void NfcTag::setActivationState() {
+   DLOG_IF(INFO, nfc_debug_enabled)
+       << StringPrintf("%s: state=%u", fn, mActivationState);
+ }
+-
++#if (NXP_EXTNS == TRUE)
++/*******************************************************************************
++**
++** Function:        resetActivationState
++**
++** Description:     Set the state to InActive due tag lost.
++**
++** Returns:         None.
++**
++*******************************************************************************/
++void NfcTag::resetActivationState() {
++  static const char fn[] = "NfcTag::resetActivationState";
++  mActivationState = InActive;
++  DLOG_IF(INFO, nfc_debug_enabled)
++      << StringPrintf("%s: state=%u", fn, mActivationState);
++}
++#endif
+ /*******************************************************************************
+ **
+ ** Function:        isActivated
+@@ -332,7 +381,17 @@ void NfcTag::discoverTechnologies(tNFA_ACTIVATED& activationData) {
+         }
+       }
+     }
+-  } else if (NFC_PROTOCOL_T3T == rfDetail.protocol) {
++  }
++#if (NXP_EXTNS == TRUE)
++  else if(NFC_PROTOCOL_T3BT == rfDetail.protocol) {
++    mTechHandles [mNumTechList] = rfDetail.rf_disc_id;
++    mTechLibNfcTypes [mNumTechList] = rfDetail.protocol;
++    mTechList [mNumTechList] = TARGET_TYPE_ISO14443_3B; //is TagTechnology.NFC_B by Java API
++    //save the stack's data structure for interpretation later
++    memcpy (&(mTechParams[mNumTechList]), &(rfDetail.rf_tech_param), sizeof(rfDetail.rf_tech_param));
++  }
++#endif
++   else if (NFC_PROTOCOL_T3T == rfDetail.protocol) {
+     uint8_t xx = 0;
+ 
+     mTechList[mNumTechList] = TARGET_TYPE_FELICA;
+@@ -360,6 +419,11 @@ void NfcTag::discoverTechnologies(tNFA_ACTIVATED& activationData) {
+         setTransceiveTimeout(mTechList[mNumTechList], fwt);
+       }
+     }
++#if (NXP_EXTNS == TRUE)
++    if (NfcTagExtns::getInstance().checkAndClearNonStdTagState()) {
++      DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: non std Tag", fn);
++    } else
++#endif
+     if ((rfDetail.rf_tech_param.mode == NFC_DISCOVERY_TYPE_POLL_A) ||
+         (rfDetail.rf_tech_param.mode == NFC_DISCOVERY_TYPE_POLL_A_ACTIVE) ||
+         (rfDetail.rf_tech_param.mode == NFC_DISCOVERY_TYPE_LISTEN_A) ||
+@@ -407,7 +471,17 @@ void NfcTag::discoverTechnologies(tNFA_ACTIVATED& activationData) {
+     mTechList[mNumTechList] =
+         TARGET_TYPE_MIFARE_CLASSIC;  // is TagTechnology.MIFARE_CLASSIC by Java
+                                      // API
+-  } else {
++  }
++  else if (NFC_PROTOCOL_T3BT == rfDetail.protocol) {
++    mTechHandles[mNumTechList] = rfDetail.rf_disc_id;
++    mTechLibNfcTypes[mNumTechList] = rfDetail.protocol;
++    mTechList[mNumTechList] =
++        TARGET_TYPE_ISO14443_3B;  // is TagTechnology.NFC_B by Java API
++    // save the stack's data structure for interpretation later
++    memcpy(&(mTechParams[mNumTechList]), &(rfDetail.rf_tech_param),
++           sizeof(rfDetail.rf_tech_param));
++  }
++  else {
+     LOG(ERROR) << StringPrintf("%s: unknown protocol ????", fn);
+     mTechList[mNumTechList] = TARGET_TYPE_UNKNOWN;
+   }
+@@ -464,7 +538,33 @@ void NfcTag::discoverTechnologies(tNFA_DISC_RESULT& discoveryData) {
+ TheEnd:
+   DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: exit", fn);
+ }
++#if (NXP_EXTNS == TRUE)
++/*******************************************************************************
++**
++** Function:        notifyNfcAbortTagops()
++**
++** Description:     Notify service to abort TAG ops.
++**
++** Returns:         None
++**
++*******************************************************************************/
++void NfcTag::notifyNfcAbortTagops(union sigval) {
++  DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: enter", __func__);
++  NfcTag& nTag = NfcTag::getInstance();
++  JNIEnv* e = NULL;
++  ScopedAttach attach(nTag.mNativeData->vm, &e);
++  if (e == NULL) {
++    LOG(ERROR) << StringPrintf("%s: jni env is null", __func__);
++    return;
++  }
+ 
++  e->CallVoidMethod(nTag.mNativeData->manager,
++                    android::gCachedNfcManagerNotifyTagAbortListeners);
++
++  CHECK(!e->ExceptionCheck());
++  DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: exit", __func__);
++}
++#endif
+ /*******************************************************************************
+ **
+ ** Function:        createNativeNfcTag
+@@ -562,6 +662,11 @@ static void deleteglobaldata(JNIEnv* e) {
+   if (gtechActBytes != NULL) {
+     e->DeleteGlobalRef(gtechActBytes);
+   }
++#if (NXP_EXTNS == TRUE)
++  if (gtechActBytes != NULL) {
++    e->DeleteGlobalRef(gtechActBytes);
++  }
++#endif
+   DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: exit", fn);
+ }
+ 
+@@ -801,6 +906,13 @@ void NfcTag::fillNativeNfcTagMembers4(JNIEnv* e, jclass tag_cls, jobject tag,
+   ScopedLocalRef<jclass> byteArrayClass(e, e->GetObjectClass(actBytes.get()));
+   ScopedLocalRef<jobjectArray> techActBytes(
+       e, e->NewObjectArray(mNumTechList, byteArrayClass.get(), 0));
++  jobject gtechActBytesObject;
++  // Restore previously selected tag information from the gtechActBytes to
++  // techActBytes.
++  for (int j = 0; j < mTechListTail; j++) {
++    gtechActBytesObject = e->GetObjectArrayElement(gtechActBytes, j);
++    e->SetObjectArrayElement(techActBytes.get(), j, gtechActBytesObject);
++  }
+ 
+   // merging sak for combi tag
+   if (activationData.activate_ntf.protocol &
+@@ -818,16 +930,14 @@ void NfcTag::fillNativeNfcTagMembers4(JNIEnv* e, jclass tag_cls, jobject tag,
+       e->SetObjectArrayElement(techActBytes.get(), i, actBytes.get());
+     }
+   }
+-  jobject gtechActBytesObject;
++
+   if (mTechListTail == 0) {
++    // Keep the backup of the selected tag information to restore back with
++    // multi selection.
+     gtechActBytes =
+         reinterpret_cast<jobjectArray>(e->NewGlobalRef(techActBytes.get()));
+-  } else {
+-    for (int j = 0; j < mTechListTail; j++) {
+-      gtechActBytesObject = e->GetObjectArrayElement(gtechActBytes, j);
+-      e->SetObjectArrayElement(techActBytes.get(), j, gtechActBytesObject);
+-    }
+   }
++
+   for (int i = mTechListTail; i < mNumTechList; i++) {
+     DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: index=%d", fn, i);
+     if (NFC_PROTOCOL_T1T == mTechLibNfcTypes[i] ||
+@@ -851,7 +961,14 @@ void NfcTag::fillNativeNfcTagMembers4(JNIEnv* e, jclass tag_cls, jobject tag,
+       actBytes.reset(e->NewByteArray(1));
+       e->SetByteArrayRegion(actBytes.get(), 0, 1,
+                             (jbyte*)&mTechParams[i].param.pa.sel_rsp);
+-    } else if (NFC_PROTOCOL_ISO_DEP == mTechLibNfcTypes[i]) {
++    }
++#if (NXP_EXTNS == TRUE)
++      else if (NFC_PROTOCOL_T3BT == mTechLibNfcTypes[i]) {
++      DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: tech T3BT; chinaId card", fn);
++      actBytes.reset(e->NewByteArray(0));
++    }
++#endif
++     else if (NFC_PROTOCOL_ISO_DEP == mTechLibNfcTypes[i]) {
+       // t4t
+       if (mTechList[i] ==
+           TARGET_TYPE_ISO14443_4)  // is TagTechnology.ISO_DEP by Java API
+@@ -991,10 +1108,25 @@ void NfcTag::fillNativeNfcTagMembers5(JNIEnv* e, jclass tag_cls, jobject tag,
+              NFC_DISCOVERY_TYPE_POLL_B_PRIME == mTechParams[0].mode ||
+              NFC_DISCOVERY_TYPE_LISTEN_B == mTechParams[0].mode ||
+              NFC_DISCOVERY_TYPE_LISTEN_B_PRIME == mTechParams[0].mode) {
+-    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: tech B", fn);
+-    uid.reset(e->NewByteArray(NFC_NFCID0_MAX_LEN));
+-    e->SetByteArrayRegion(uid.get(), 0, NFC_NFCID0_MAX_LEN,
++#if (NXP_EXTNS == TRUE)
++    if (activationData.activate_ntf.protocol != NFA_PROTOCOL_T3BT)
++#endif
++    {
++      DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: tech B", fn);
++      uid.reset(e->NewByteArray(NFC_NFCID0_MAX_LEN));
++      e->SetByteArrayRegion(uid.get(), 0, NFC_NFCID0_MAX_LEN,
+                           (jbyte*)&mTechParams[0].param.pb.nfcid0);
++    }
++#if (NXP_EXTNS == TRUE)
++    else {
++      DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: chinaId card", fn);
++      DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
++          "%s: pipi_id[0]=%x", fn, mTechParams[0].param.pb.pupiid[0]);
++      uid.reset(e->NewByteArray(NFC_PUPIID_MAX_LEN));
++      e->SetByteArrayRegion(uid.get(), 0, NFC_PUPIID_MAX_LEN,
++                            (jbyte*)&mTechParams[0].param.pb.pupiid);
++    }
++#endif
+   } else if (NFC_DISCOVERY_TYPE_POLL_F == mTechParams[0].mode ||
+              NFC_DISCOVERY_TYPE_POLL_F_ACTIVE == mTechParams[0].mode ||
+              NFC_DISCOVERY_TYPE_LISTEN_F == mTechParams[0].mode ||
+@@ -1062,20 +1194,20 @@ void NfcTag::selectP2p() {
+   static const char fn[] = "NfcTag::selectP2p";
+   uint8_t rfDiscoveryId = 0;
+ 
+-  for (int i = 0; i < mNumTechList; i++) {
++  for (int i = 0; i < mNumDiscTechList; i++) {
+     // if remote device does not support P2P, just skip it
+-    if (mTechLibNfcTypes[i] != NFA_PROTOCOL_NFC_DEP) continue;
++    if (mTechLibNfcTypesDiscData[i] != NFA_PROTOCOL_NFC_DEP) continue;
+ 
+     // if remote device supports tech F;
+     // tech F is preferred because it is faster than tech A
+     if ((mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_F) ||
+         (mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_F_ACTIVE)) {
+-      rfDiscoveryId = mTechHandles[i];
++      rfDiscoveryId = mTechHandlesDiscData[i];
+       break;  // no need to search further
+     } else if ((mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_A) ||
+                (mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_A_ACTIVE)) {
+       // only choose tech A if tech F is unavailable
+-      if (rfDiscoveryId == 0) rfDiscoveryId = mTechHandles[i];
++      if (rfDiscoveryId == 0) rfDiscoveryId = mTechHandlesDiscData[i];
+     }
+   }
+ 
+@@ -1109,6 +1241,9 @@ void NfcTag::resetTechnologies() {
+   mNumDiscTechList = 0;
+   mTechListTail = 0;
+   mIsMultiProtocolTag = false;
++#if (NXP_EXTNS == TRUE)
++  mTechListIndex = 0;
++#endif
+   memset(mTechList, 0, sizeof(mTechList));
+   memset(mTechHandles, 0, sizeof(mTechHandles));
+   memset(mTechLibNfcTypes, 0, sizeof(mTechLibNfcTypes));
+@@ -1116,6 +1251,14 @@ void NfcTag::resetTechnologies() {
+   mIsDynamicTagId = false;
+   mIsFelicaLite = false;
+   resetAllTransceiveTimeouts();
++#if (NXP_EXTNS == TRUE)
++  EXTNS_SetConnectFlag(false);
++  /* reset KOVIO uidLen on disconnect/presence
++   * check failed/DEACTIVATED_NTF to enable
++   * thus isSameKovio returns false
++   * */
++  mLastKovioUidLen = 0;
++#endif
+ }
+ 
+ /*******************************************************************************
+@@ -1138,6 +1281,11 @@ void NfcTag::selectFirstTag() {
+         << StringPrintf("%s: nfa target idx=%d h=0x%X; protocol=0x%X", fn, i,
+                         mTechHandlesDiscData[i], mTechLibNfcTypesDiscData[i]);
+     if (mTechLibNfcTypesDiscData[i] != NFA_PROTOCOL_NFC_DEP) {
++#if (NXP_EXTNS == TRUE)
++      if (NfcTagExtns::getInstance().shouldSkipProtoActivate(
++              mTechLibNfcTypesDiscData[i]))
++        break;  // Non-standard tag detected
++#endif
+       sLastSelectedTagId = i;
+       foundIdx = i;
+       break;
+diff --git a/nci/jni/NfcTag.h b/nci/jni/NfcTag.h
+index 4769df18..30c04598 100644
+--- a/nci/jni/NfcTag.h
++++ b/nci/jni/NfcTag.h
+@@ -17,7 +17,25 @@
+ /*
+  *  Tag-reading, tag-writing operations.
+  */
+-
++/******************************************************************************
++*
++*  The original Work has been changed by NXP.
++*
++*  Licensed under the Apache License, Version 2.0 (the "License");
++*  you may not use this file except in compliance with the License.
++*  You may obtain a copy of the License at
++*
++*  http://www.apache.org/licenses/LICENSE-2.0
++*
++*  Unless required by applicable law or agreed to in writing, software
++*  distributed under the License is distributed on an "AS IS" BASIS,
++*  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++*  See the License for the specific language governing permissions and
++*  limitations under the License.
++*
++*  Copyright 2023 NXP
++*
++******************************************************************************/
+ #pragma once
+ #include <vector>
+ #include "NfcJniUtil.h"
+@@ -27,12 +45,32 @@
+ 
+ #define MIN_FWI (11)
+ #define MAX_FWI (14)
++#if (NXP_EXTNS == TRUE)
++#define TIME_MUL_100MS 100
++#define NON_STD_CARD_SAK (0x13)
++typedef struct activationParams {
++  int mTechParams;
++  int mTechLibNfcTypes;
++} activationParams_t;
++#endif
+ 
+ class NfcTag {
+  public:
++#if (NXP_EXTNS == TRUE)
++  enum ActivationState { Idle, Sleep, Active, InActive };
++#else
+   enum ActivationState { Idle, Sleep, Active };
++#endif
+   static const int MAX_NUM_TECHNOLOGY =
+       11;  // max number of technologies supported by one or more tags
++#if (NXP_EXTNS == TRUE)
++  int mTechLibNfcTypesDiscData[MAX_NUM_TECHNOLOGY];  // array of detailed tag
++                                                     // types ( RF Protocol)
++                                                     // received from
++                                                     // RF_DISC_NTF
++  int mNumDiscNtf;
++  activationParams_t mActivationParams_t;
++#endif
+   int mTechList[MAX_NUM_TECHNOLOGY];  // array of NFC technologies according to
+                                       // NFC service
+   int mTechHandles[MAX_NUM_TECHNOLOGY];  // array of tag handles (RF DISC ID)
+@@ -43,6 +81,12 @@ class NfcTag {
+                                              // service received from
+                                              // RF_INTF_ACTIVATED NTF
+   int mNumTechList;  // current number of NFC technologies in the list
++#if (NXP_EXTNS == TRUE)
++  int mTechListIndex;
++  bool mIsMultiProtocolTag;
++  int  mCurrentRequestedProtocol;
++  uint8_t mNfcID0[4];
++#endif
+ 
+   /*******************************************************************************
+   **
+@@ -145,7 +189,41 @@ class NfcTag {
+   **
+   *******************************************************************************/
+   void setActivationState();
+-
++#if (NXP_EXTNS == TRUE)
++/*******************************************************************************
++**
++** Function:        resetActivationState
++**
++** Description:     Set the state to InActive due tag lost.
++**
++** Returns:         None.
++**
++*******************************************************************************/
++  void resetActivationState();
++
++  /*******************************************************************************
++   **
++   ** Function:        notifyNfcAbortTagops()
++   **
++   ** Description:     Notify service to abort TAG ops.
++   **
++   ** Returns:         None
++   **
++   *******************************************************************************/
++  static void notifyNfcAbortTagops(union sigval);
++
++/*******************************************************************************
++**
++** Function         clearNonStdMfcState
++**
++** Description      Clear Non standard MFC states
++**
++** Returns          None
++**
++*******************************************************************************/
++void clearNonStdMfcState();
++
++#endif
+   /*******************************************************************************
+   **
+   ** Function:        getProtocol
+@@ -438,14 +516,15 @@ class NfcTag {
+   int mTechHandlesDiscData[MAX_NUM_TECHNOLOGY];      // array of tag handles (RF
+                                                      // DISC ID) received from
+                                                      // RF_DISC_NTF
++  #if (NXP_EXTNS == FALSE)
+   int mTechLibNfcTypesDiscData[MAX_NUM_TECHNOLOGY];  // array of detailed tag
+                                                      // types ( RF Protocol)
+                                                      // received from
+                                                      // RF_DISC_NTF
+   int mNumDiscNtf;
++#endif
+   int mNumDiscTechList;
+   int mTechListTail;  // Index of Last added entry in mTechList
+-  bool mIsMultiProtocolTag;
+ 
+   /*******************************************************************************
+   **
+diff --git a/nci/jni/NfcTagExtns.cpp b/nci/jni/NfcTagExtns.cpp
+new file mode 100644
+index 00000000..6a9eaa19
+--- /dev/null
++++ b/nci/jni/NfcTagExtns.cpp
+@@ -0,0 +1,912 @@
++/*
++ *  Tagreading, tagwriting operations.
++ */
++/******************************************************************************
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ *  Copyright 2023 NXP
++ *
++ ******************************************************************************/
++#include "NfcTagExtns.h"
++
++#include <android-base/stringprintf.h>
++#include <base/logging.h>
++#include <errno.h>
++
++#include "nfc_config.h"
++
++namespace android {
++extern void nativeNfcTag_setTransceiveFlag(bool state);
++extern void nativeNfcTag_abortWaits();
++extern SyncEvent sTransceiveEvent;
++extern bool nfc_debug_enabled;
++extern bool gIsSelectingRfInterface;
++}  // namespace android
++extern uint32_t TimeDiff(timespec start, timespec end);
++extern int sLastSelectedTagId;
++
++NfcTagExtns NfcTagExtns::sTagExtns;
++
++uint8_t RW_TAG_SLP_REQ[] = {0x50, 0x00};
++uint8_t RW_DESELECT_REQ[] = {0xC2};
++using android::base::StringPrintf;
++
++/******************************************************************************
++**
++** Function:        getInstance
++**
++** Description:     Singleton call for NfcTagExtns class.
++**
++** Returns:         NfcTagExtns object.
++**
++*******************************************************************************/
++NfcTagExtns& NfcTagExtns::getInstance() { return sTagExtns; }
++
++/******************************************************************************
++**
++** Function:        initialize
++**
++** Description:     NfcTagExtns Initialization API.
++**
++** Returns:         None.
++**
++*******************************************************************************/
++void NfcTagExtns::initialize() {
++  sTagConnectedTargetType = 0;
++  sTagActivatedMode = 0;
++  sTagActivatedProtocol = 0;
++  isNonStdCardSupported = false;
++  tagState = 0;  // clear all bit flags related tag operations
++  mNonStdCardTimeDiff.push_back(100);
++  mNonStdCardTimeDiff.push_back(300);
++  if (NfcConfig::hasKey(NAME_NXP_NON_STD_CARD_TIMEDIFF)) {
++    vector<uint8_t> timeDiff =
++        NfcConfig::getBytes(NAME_NXP_NON_STD_CARD_TIMEDIFF);
++    DLOG_IF(INFO, android::nfc_debug_enabled)
++        << StringPrintf("%s: Non std card", __func__);
++    for (size_t i = 0; i < timeDiff.size(); i++) {
++      mNonStdCardTimeDiff.at(i) = timeDiff.at(i) * TIME_MUL_100MS;
++      DLOG_IF(INFO, android::nfc_debug_enabled) << StringPrintf(
++          "%s: timediff[%zu] = %d", __func__, i, mNonStdCardTimeDiff.at(i));
++    }
++  } else {
++    DLOG_IF(INFO, android::nfc_debug_enabled)
++        << StringPrintf("%s: timediff not defined taking default", __func__);
++  }
++  isNonStdCardSupported =
++      (NfcConfig::getUnsigned(NAME_NXP_SUPPORT_NON_STD_CARD, 0) != 0) ? true
++                                                                      : false;
++  memset(&LastDetectedTime, 0, sizeof(timespec));
++  memset(&discovery_ntf, 0, sizeof(discovery_ntf));
++  memset(&intf_param, 0, sizeof(intf_param));
++}
++
++/******************************************************************************
++**
++** Function:        processNonStdTagOperation
++**
++** Description:     Public API for Non-standard TAG handling
++**
++** Returns:         TAG_STATUS_PROPRIETARY if proprietary else
++**                  TAG_STATUS_STANDARD.
++**
++*******************************************************************************/
++tTagStatus NfcTagExtns::processNonStdTagOperation(TAG_API_REQUEST caller,
++                                                  TAG_OPERATION operation) {
++  tTagStatus status = TAG_STATUS_FAILED;
++  DLOG_IF(INFO, android::nfc_debug_enabled)
++      << StringPrintf("%s: processNonStdTagOperation caller :%d state :%d",
++                      __func__, caller, operation);
++  switch (caller) {
++    case TAG_API_REQUEST::TAG_RESELECT_API:
++      switch (operation) {
++        case TAG_OPERATION::TAG_HALT_PICC_OPERATION:
++          status = performHaltPICC();
++          break;
++        case TAG_OPERATION::TAG_DEACTIVATE_OPERATION:
++          status = performTagDeactivation();
++          break;
++        case TAG_OPERATION::TAG_DEACTIVATE_RSP_OPERATION:
++          status = updateTagState();
++          break;
++        case TAG_OPERATION::TAG_RECONNECT_OPERATION:
++          status = performTagReconnect();
++          break;
++        case TAG_OPERATION::TAG_RECONNECT_FAILED_OPERATION:
++          status = performTagReconnectFailed();
++          break;
++        case TAG_OPERATION::TAG_CLEAR_STATE_OPERATION:
++          status = clearTagState();
++          break;
++        default:
++          break;
++      }
++      break;
++    case TAG_API_REQUEST::TAG_CHECK_NDEF_API:
++      status = checkAndSkipNdef();
++      break;
++  }
++  return status;
++}
++
++/******************************************************************************
++**
++** Function:        processNonStdNtfHandler
++**
++** Description:     connection events/notification handling.
++**
++** Returns:         TAG_STATUS_PROPRIETARY if proprietary else
++**                  TAG_STATUS_STANDARD.
++**
++*******************************************************************************/
++void NfcTagExtns::processNonStdNtfHandler(EVENT_TYPE event,
++                                          tNFA_CONN_EVT_DATA* eventDat) {
++  DLOG_IF(INFO, android::nfc_debug_enabled) << StringPrintf(
++      "%s: processNonStdNtfHandler event :%d ", __func__, event);
++
++  switch (event) {
++    case EVENT_TYPE::NFA_SELECT_RESULT_EVENT:
++      processtagSelectEvent(eventDat);
++      break;
++    case EVENT_TYPE::NFA_DEACTIVATE_EVENT:
++    case EVENT_TYPE::NFA_DEACTIVATE_FAIL_EVENT:
++      processDeactivateEvent(eventDat, event);
++      break;
++    case EVENT_TYPE::NFA_DISC_RESULT_EVENT:
++      processDiscoveryNtf(eventDat);
++      break;
++    case EVENT_TYPE::NFA_ACTIVATED_EVENT:
++      processActivatedNtf(eventDat);
++      break;
++  }
++  return;
++}
++
++/******************************************************************************
++**
++** Function:        isNonStdMFCTagDetected
++**
++** Description:     Check if tag is Non-standard MF.
++**
++** Returns:         True(Non-Std MFC)/FALSE(otherwise).
++**
++*******************************************************************************/
++bool NfcTagExtns::isNonStdMFCTagDetected() {
++  return (tagState & TAG_MFC_NON_STD_TYPE);
++}
++
++/******************************************************************************
++**
++** Function:        processDeactivateEvent
++**
++** Description:     RF_DEACTIVATE operation for Non-standard tag
++**
++** Returns:         None.
++**
++*******************************************************************************/
++void NfcTagExtns::processDeactivateEvent(tNFA_CONN_EVT_DATA* eventData,
++                                         EVENT_TYPE event) {
++  NfcTag& nfcTag = NfcTag::getInstance();
++  if (event == EVENT_TYPE::NFA_DEACTIVATE_EVENT) {
++    if (tagState & TAG_DEACTIVATE_TO_SLEEP && (eventData != NULL)) {
++      if (eventData->deactivated.type == NFA_DEACTIVATE_TYPE_IDLE) {
++        tagState |= TAG_DEACTIVATE_TO_IDLE;
++      } else if (eventData->deactivated.type == NFA_DEACTIVATE_TYPE_SLEEP) {
++        tagState &= ~TAG_DEACTIVATE_TO_SLEEP;
++      }
++    }
++    if ((eventData != NULL) &&
++        eventData->deactivated.type != NFA_DEACTIVATE_TYPE_SLEEP) {
++      nfcTag.setMultiProtocolTagSupport(false);
++      // resetTechnologies does'nt clears mActivationParams_t
++      // In multi protocol tag this parameter contains previous technology Info
++      // So In case of Deactivate to discovery it shall not clear the same
++      // Since resetTechnologies don't have deactivate type info.
++      // Required to clear as part of new method. In future if required can
++      // clear other required flags also.
++      nfcTag.setNumDiscNtf(0);
++      nfcTag.mTechListIndex = 0;
++      if (android::gIsSelectingRfInterface == false) {
++        if (eventData->deactivated.type != NFA_DEACTIVATE_TYPE_DISCOVERY)
++          memset(&nfcTag.mActivationParams_t, 0, sizeof(activationParams_t));
++        nfcTag.connectionEventHandler(NFA_DEACTIVATED_EVT, eventData);
++        android::nativeNfcTag_abortWaits();
++      }
++    }
++  } else if (event == EVENT_TYPE::NFA_DEACTIVATE_FAIL_EVENT) {
++    if (eventData->status == NFC_DEACTIVATE_REASON_DH_REQ_FAILED) {
++      tagState |= TAG_ISODEP_DEACTIVATE_FAIL;
++      nfcTag.setNumDiscNtf(0);
++      LOG(ERROR) << StringPrintf("%s: NFA_DEACTIVATE_FAIL_EVT", __func__);
++      if (nfcTag.mIsMultiProtocolTag) {
++        storeNonStdTagData();
++      }
++    }
++    if (tagState & TAG_DEACTIVATE_TO_SLEEP) {
++      tagState &= ~TAG_DEACTIVATE_TO_SLEEP;
++    }
++  } else {
++    // do nothing
++    LOG(ERROR) << StringPrintf("%s: Unknown event type", __func__);
++  }
++}
++
++/******************************************************************************
++**
++** Function:        processActivatedNtf
++**
++** Description:     Handle RF_INTF_ACTIVATED_NTF for Non-standard tag
++**
++** Returns:         None.
++**
++*******************************************************************************/
++void NfcTagExtns::processActivatedNtf(tNFA_CONN_EVT_DATA* data) {
++  bool isTagOpertion = false;
++  if ((data->activated.activate_ntf.protocol != NFA_PROTOCOL_NFC_DEP) &&
++      (!isListenMode(data->activated))) {
++    setRfProtocol((tNFA_INTF_TYPE)data->activated.activate_ntf.protocol,
++                  data->activated.activate_ntf.rf_tech_param.mode);
++    if (getActivatedMode() == TARGET_TYPE_ISO14443_3B) {
++      DLOG_IF(INFO, android::nfc_debug_enabled) << StringPrintf(
++          "%s: NFA_ACTIVATED_EVT: received typeB NFCID0", __func__);
++      updateNfcID0Param(
++          data->activated.activate_ntf.rf_tech_param.param.pb.nfcid0);
++    }
++    isTagOpertion = true;
++  }
++  if (android::gIsSelectingRfInterface) {
++    if (checkActivatedProtoParameters(data->activated)) {
++      NfcTag::getInstance().setActivationState();
++    }
++  } else {
++    if (isTagOpertion) {
++      tNFA_ACTIVATED& activated = data->activated;
++      // In case activated tag is a multiprotocol tag then store
++      // activated tag data because sometimes sleep may not supported by
++      // non standard tag during multiprotocol tag detection.
++      if (NfcTag::getInstance().mIsMultiProtocolTag) {
++        clearNonStdTagData();
++        memcpy(&(discovery_ntf.rf_tech_param),
++               &(activated.activate_ntf.rf_tech_param),
++               sizeof(tNFC_RF_TECH_PARAMS));
++        memcpy(&intf_param, &(activated.activate_ntf.intf_param),
++               sizeof(tNFC_INTF_PARAMS));
++      }
++    }
++  }
++  tagState &= ~TAG_ISODEP_DEACTIVATE_FAIL;
++  /*clear NonStdMfcTag state if a non-multiprotocol tag is activated*/
++  if (!NfcTag::getInstance().mIsMultiProtocolTag &&
++      (tagState & TAG_MFC_NON_STD_TYPE)) {
++    clearNonStdMfcState();
++  }
++}
++
++/*******************************************************************************
++**
++** Function:        checkActivatedProtoParameters
++**
++** Description:     Check whether tag activated params are same.If different it
++**                  will restart rf discovery.
++**
++**
++** Returns:         true(same protocol)/false(different protocol)
++**
++*******************************************************************************/
++bool NfcTagExtns::checkActivatedProtoParameters(
++    tNFA_ACTIVATED& activationData) {
++  bool status = false;
++  NfcTag& natTag = NfcTag::getInstance();
++  tNFC_ACTIVATE_DEVT& rfDetail = activationData.activate_ntf;
++  if (natTag.mCurrentRequestedProtocol != NFC_PROTOCOL_UNKNOWN &&
++      rfDetail.protocol != natTag.mCurrentRequestedProtocol) {
++    NFA_Deactivate(FALSE);
++  } else {
++    status = true;
++  }
++  DLOG_IF(INFO, android::nfc_debug_enabled) << StringPrintf(
++      "%s: mCurrentRequestedProtocol %x rfDetail.protocol %x", __func__,
++      natTag.mCurrentRequestedProtocol, rfDetail.protocol);
++  return status;
++}
++
++/*******************************************************************************
++**
++** Function:        isListenMode
++**
++** Description:     Indicates whether the activation data indicates it is
++**                  listen mode.
++**
++** Returns:         True if this listen mode.
++**
++*******************************************************************************/
++bool NfcTagExtns::isListenMode(tNFA_ACTIVATED& activated) {
++  return (
++      (NFC_DISCOVERY_TYPE_LISTEN_A ==
++       activated.activate_ntf.rf_tech_param.mode) ||
++      (NFC_DISCOVERY_TYPE_LISTEN_B ==
++       activated.activate_ntf.rf_tech_param.mode) ||
++      (NFC_DISCOVERY_TYPE_LISTEN_F ==
++       activated.activate_ntf.rf_tech_param.mode) ||
++      (NFC_DISCOVERY_TYPE_LISTEN_A_ACTIVE ==
++       activated.activate_ntf.rf_tech_param.mode) ||
++      (NFC_DISCOVERY_TYPE_LISTEN_F_ACTIVE ==
++       activated.activate_ntf.rf_tech_param.mode) ||
++      (NFC_DISCOVERY_TYPE_LISTEN_ISO15693 ==
++       activated.activate_ntf.rf_tech_param.mode) ||
++      (NFC_DISCOVERY_TYPE_LISTEN_B_PRIME ==
++       activated.activate_ntf.rf_tech_param.mode) ||
++      (NFC_INTERFACE_EE_DIRECT_RF == activated.activate_ntf.intf_param.type));
++}
++
++/******************************************************************************
++**
++** Function:        checkAndClearNonStdTagState
++**
++** Description:     Clears the proprietary tag state
++**
++** Returns:         true if proprietary else false.
++*
++**
++*******************************************************************************/
++bool NfcTagExtns::checkAndClearNonStdTagState() {
++  bool ret = false;
++  if (tagState & TAG_NON_STD_SAK_TYPE) {
++    tagState &= ~TAG_NON_STD_SAK_TYPE;
++    DLOG_IF(INFO, android::nfc_debug_enabled)
++        << StringPrintf("%s: non std Tag", __func__);
++    ret = true;
++  }
++  return ret;
++}
++
++/*******************************************************************************
++**
++** Function         storeNonStdTagData
++**
++** Description      Store non standard tag data
++**
++** Returns          None
++**
++*******************************************************************************/
++void NfcTagExtns::storeNonStdTagData() {
++  int ret = clock_gettime(CLOCK_MONOTONIC, &LastDetectedTime);
++  if (ret == -1) {
++    DLOG_IF(ERROR, android::nfc_debug_enabled)
++        << StringPrintf("Log : clock_gettime failed");
++    clearNonStdTagData();
++  } else {
++    tNFC_RESULT_DEVT& nonStdTagInfo = discovery_ntf;
++    nonStdTagInfo.rf_disc_id =
++        NfcTag::getInstance().mTechHandles[sLastSelectedTagId];
++    nonStdTagInfo.protocol =
++        NfcTag::getInstance().mTechLibNfcTypes[sLastSelectedTagId];
++    DLOG_IF(INFO, android::nfc_debug_enabled)
++        << StringPrintf("%s: %u is stored", __func__, nonStdTagInfo.rf_disc_id);
++  }
++}
++
++/*******************************************************************************
++ **
++ ** Function:        processtagSelectEvent
++ **
++ ** Description:     Update Time in case Mifare activation failed.
++ **
++ ** Returns:         None
++ **
++ *******************************************************************************/
++void NfcTagExtns::processtagSelectEvent(tNFA_CONN_EVT_DATA* data) {
++  if (!isNonStdCardSupported) {
++    DLOG_IF(INFO, android::nfc_debug_enabled)
++        << StringPrintf("%s:Non standard support disabled", __func__);
++    return;
++  }
++
++  if (data->status != NFA_STATUS_OK) {
++    NfcTag::getInstance().mTechListIndex = 0;
++    if (IS_MULTIPROTO_MFC_TAG()) {
++      tagState |= TAG_MFC_NON_STD_TYPE;
++
++      DLOG_IF(INFO, android::nfc_debug_enabled)
++          << StringPrintf("%s: Non STD MFC sequence1", __func__);
++      int ret = clock_gettime(CLOCK_MONOTONIC, &LastDetectedTime);
++      if (ret == -1) {
++        DLOG_IF(ERROR, android::nfc_debug_enabled)
++            << StringPrintf("Log : clock_gettime failed");
++      }
++    }
++  }
++}
++
++/*******************************************************************************
++ **
++ ** Function:        processDiscoveryNtf
++ **
++ ** Description:     Handle RF_DISCOVER_NTF for proprietary tag
++ **
++ ** Returns:         TAG_STATUS_PROPRIETARY if proprietary else
++ *                   TAG_STATUS_STANDARD.
++ **
++ *******************************************************************************/
++void NfcTagExtns::processDiscoveryNtf(tNFA_CONN_EVT_DATA* data) {
++  // tNFA_DISC_RESULT& disc_result = data->disc_result;
++  tNFC_RESULT_DEVT& discovery_ntf = data->disc_result.discovery_ntf;
++
++  if (!isNonStdCardSupported) {
++    DLOG_IF(INFO, android::nfc_debug_enabled)
++        << StringPrintf("%s:Non standard support disabled", __func__);
++    return;
++  }
++  DLOG_IF(INFO, android::nfc_debug_enabled)
++      << StringPrintf("%s:Non standard support enabled", __func__);
++  if (discovery_ntf.rf_tech_param.param.pa.sel_rsp == NON_STD_CARD_SAK) {
++    // Non Standard Transit => ISO-DEP
++    DLOG_IF(INFO, android::nfc_debug_enabled) << StringPrintf(
++        "%s:Non standard Transit => change to ISO-DEP", __func__);
++    // Shall be updated as part of callback
++    NfcTag::getInstance()
++        .mTechLibNfcTypesDiscData[NfcTag::getInstance().mNumDiscNtf] =
++        NFC_PROTOCOL_ISO_DEP;
++    tagState |= TAG_NON_STD_SAK_TYPE;
++  } else {
++    updateNonStdTagState(discovery_ntf.protocol, discovery_ntf.more);
++  }
++  return;
++}
++
++/*******************************************************************************
++**
++** Function         shouldSkipProtoActivate
++**
++** Description      Check whether tag activation should be skipped or not. If
++**                  activation is skipped then send fake activate event.
++**
++** Returns:         True if tag activation is skipped.
++**
++*******************************************************************************/
++bool NfcTagExtns::shouldSkipProtoActivate(tNFC_PROTOCOL protocol) {
++  bool status = false;
++  if ((protocol == NFA_PROTOCOL_ISO_DEP) &&
++      (tagState & TAG_SKIP_ISODEP_ACT_TYPE)) {
++    NfcTag& natTag = NfcTag::getInstance();
++    tNFA_CONN_EVT_DATA evt_data;
++    tNFC_ACTIVATE_DEVT& act_ntf = evt_data.activated.activate_ntf;
++    tNFC_RESULT_DEVT& nonStdTagInfo = discovery_ntf;
++    act_ntf.rf_disc_id = nonStdTagInfo.rf_disc_id;
++    act_ntf.protocol = nonStdTagInfo.protocol;
++    memcpy(&(act_ntf.rf_tech_param), &(nonStdTagInfo.rf_tech_param),
++           sizeof(tNFC_RF_TECH_PARAMS));
++    memcpy(&(act_ntf.intf_param), &(intf_param), sizeof(tNFC_INTF_PARAMS));
++    DLOG_IF(INFO, android::nfc_debug_enabled)
++        << StringPrintf("%s: %u is skipped", __func__, act_ntf.rf_disc_id);
++    natTag.connectionEventHandler(NFA_ACTIVATED_EVT, &evt_data);
++    // Shall be handled as part of NfcTag
++    natTag.setNumDiscNtf((natTag.getNumDiscNtf() - 1));
++    status = true;
++  }
++  return status;
++}
++/*******************************************************************************
++**
++** Function         isTagDetectedInRefTime
++**
++** Description      Computes time difference in milliseconds and compare it
++**                  with the reference provided.
++**
++** Returns          TRUE(time diff less than reference)/FALSE(Otherwise)
++**
++*******************************************************************************/
++bool NfcTagExtns::isTagDetectedInRefTime(uint32_t reference) {
++  bool isNonStdCard = false;
++  struct timespec end;
++  uint32_t timediff;
++  int ret = clock_gettime(CLOCK_MONOTONIC, &end);
++  if (ret == -1) {
++    DLOG_IF(ERROR, android::nfc_debug_enabled)
++        << StringPrintf("%s : clock_gettime failed", __func__);
++    return false;
++  }
++  timediff = TimeDiff(LastDetectedTime, end);
++  if (timediff < reference) {
++    DLOG_IF(INFO, android::nfc_debug_enabled) << StringPrintf(
++        "%s: Non standard MFC tag detected, sequence-2", __func__);
++    isNonStdCard = true;
++  }
++  return isNonStdCard;
++}
++
++/*******************************************************************************
++**
++** Function         updateNonStdTagState
++**
++** Description      Update Non standard Tag state based on RF_DISC_NTF or
++**                  INTF_ACTIVATED_NTF
++**
++** Returns          None
++**
++*******************************************************************************/
++void NfcTagExtns::updateNonStdTagState(uint8_t protocol,
++                                       uint8_t more_disc_ntf) {
++  if (protocol == NFC_PROTOCOL_MIFARE) {
++    /*If NonStd MFC tag is detected*/
++    if ((tagState & TAG_MFC_NON_STD_TYPE) &&
++        isTagDetectedInRefTime(mNonStdCardTimeDiff[MFC])) {
++      tagState |= TAG_SKIP_NDEF_TYPE;
++    } else {
++      clearNonStdMfcState();
++    }
++    /*If WA flag is true but no non standard MFC detected in next iteration
++     * clear the WA flag*/
++  } else if (protocol == NFC_PROTOCOL_ISO_DEP) {
++    if ((tagState & TAG_ISODEP_DEACTIVATE_FAIL) &&
++        isTagDetectedInRefTime(mNonStdCardTimeDiff[ISO_DEP])) {
++      tagState |= TAG_SKIP_ISODEP_ACT_TYPE;
++    } else {
++      clearNonStdTagData();
++    }
++  } else if (more_disc_ntf == NCI_DISCOVER_NTF_LAST) {
++    bool isMFCDetected = false;
++    for (int i = 0; i < NfcTag::getInstance().mNumTechList; i++) {
++      if (NfcTag::getInstance().mTechLibNfcTypes[i] == NFC_PROTOCOL_MIFARE) {
++        isMFCDetected = true;
++      }
++    }
++    if (!isMFCDetected) {
++      clearNonStdMfcState();
++    }
++  }
++  /*retain the status*/
++  else {
++  }
++  return;
++}
++
++/*******************************************************************************
++**
++** Function         clearNonStdMfcState
++**
++** Description      Clear Non standard MFC states
++**
++** Returns          None
++**
++*******************************************************************************/
++void NfcTagExtns::clearNonStdMfcState() {
++  tagState &= ~TAG_SKIP_NDEF_TYPE;
++  tagState &= ~TAG_MFC_NON_STD_TYPE;
++  memset(&LastDetectedTime, 0, sizeof(timespec));
++}
++
++/*******************************************************************************
++**
++** Function         clearNonStdTagData
++**
++** Description      Clear non standard tag data
++**
++** Returns          None
++**
++*******************************************************************************/
++void NfcTagExtns::clearNonStdTagData() {
++  DLOG_IF(INFO, android::nfc_debug_enabled) << StringPrintf("%s", __func__);
++  memset(&discovery_ntf, 0, sizeof(discovery_ntf));
++  memset(&intf_param, 0, sizeof(intf_param));
++}
++
++/*******************************************************************************
++**
++** Function:        performHaltPICC()
++**
++** Description:     Issue HALT as per the current activated protocol & mode
++**
++** Returns:         True if ok.
++**
++*******************************************************************************/
++tTagStatus NfcTagExtns::performHaltPICC() {
++  tNFA_STATUS status = NFA_STATUS_OK;
++  tTagStatus ret = TAG_STATUS_SUCCESS;
++#if (NXP_SRD == TRUE)
++  static const uint8_t ENABLE = 0x01;
++  if (SecureDigitization::getInstance().getSrdState() == ENABLE) {
++    return ret;
++  }
++#endif
++  if (getActivatedProtocol() == NFA_PROTOCOL_T2T ||
++      (getActivatedProtocol() == NFA_PROTOCOL_ISO_DEP &&
++       getActivatedMode() == TARGET_TYPE_ISO14443_3A)) {
++    status = NFA_SendRawFrame(RW_TAG_SLP_REQ, sizeof(RW_TAG_SLP_REQ), 0);
++    usleep(10 * 1000);
++  } else if (getActivatedProtocol() == NFA_PROTOCOL_ISO_DEP &&
++             getActivatedMode() == TARGET_TYPE_ISO14443_3B) {
++    uint8_t halt_b[5] = {0x50, 0, 0, 0, 0};
++    memcpy(&halt_b[1], mNfcID0, 4);
++    android::nativeNfcTag_setTransceiveFlag(true);
++    SyncEventGuard g(android::sTransceiveEvent);
++    status = NFA_SendRawFrame(halt_b, sizeof(halt_b), 0);
++    if (status != NFA_STATUS_OK) {
++      DLOG_IF(ERROR, android::nfc_debug_enabled)
++          << StringPrintf("%s: fail send; error=%d", __func__, status);
++      ret = TAG_STATUS_FAILED;
++    } else {
++      if (android::sTransceiveEvent.wait(100) == false) {
++        ret = TAG_STATUS_FAILED;
++        DLOG_IF(ERROR, android::nfc_debug_enabled)
++            << StringPrintf("%s: timeout on HALTB", __func__);
++      }
++    }
++    android::nativeNfcTag_setTransceiveFlag(false);
++  }
++  return ret;
++}
++
++/*******************************************************************************
++**
++** Function:        performTagDeactivation()
++**
++** Description:     Perform deactivation of proprietary tag types
++**
++** Returns:         TAG_STATUS_PROPRIETARY if proprietary else
++**                  TAG_STATUS_STANDARD.
++**
++*******************************************************************************/
++tTagStatus NfcTagExtns::performTagDeactivation() {
++  tNFA_STATUS status = NFA_STATUS_OK;
++  tTagStatus ret = TAG_STATUS_STANDARD;
++
++  if (tagState & TAG_CASHBEE_TYPE) {
++    ret = TAG_STATUS_PROPRIETARY;
++    DLOG_IF(INFO, android::nfc_debug_enabled)
++        << StringPrintf("%s: Deactivate to IDLE", __func__);
++    if (NFA_STATUS_OK != (status = NFA_StopRfDiscovery())) {
++      LOG(ERROR) << StringPrintf("%s: Deactivate failed, status = 0x%0X",
++                                 __func__, status);
++      ret = TAG_STATUS_FAILED;
++    }
++  } else {
++/*    if (NFA_DM_RF_FIELD_ON) {
++      NfcTag::getInstance().resetActivationState();
++      DLOG_IF(INFO, android::nfc_debug_enabled)
++          << StringPrintf("%s: card emulation on priotiy", __func__);
++      ret = TAG_STATUS_LOST;
++    } else {*/
++      DLOG_IF(INFO, android::nfc_debug_enabled)
++          << StringPrintf("%s: deactivate to sleep", __func__);
++      if (NFA_STATUS_OK !=
++          (status = NFA_Deactivate(TRUE))) {  // deactivate to sleep state
++        LOG(ERROR) << StringPrintf("%s: deactivate failed, status = %d",
++                                   __func__, status);
++        ret = TAG_STATUS_FAILED;
++      //}
++    }
++  }
++
++  if ((ret == TAG_STATUS_STANDARD) &&
++      NfcTag::getInstance().mIsMultiProtocolTag) {
++    tagState |= TAG_DEACTIVATE_TO_SLEEP;
++  }
++  return ret;
++}
++
++/*******************************************************************************
++**
++** Function:        updateTagState()
++**
++** Description:     Update tag state after receiving RF_DEACTIVATE_NTF
++**
++** Returns:         TAG_STATUS_PROPRIETARY if proprietary else
++**                  TAG_STATUS_STANDARD.
++**
++*******************************************************************************/
++tTagStatus NfcTagExtns::updateTagState() {
++  tTagStatus ret = TAG_STATUS_STANDARD;
++
++  if ((tagState & TAG_DEACTIVATE_TO_SLEEP) &&
++      (tagState & TAG_DEACTIVATE_TO_IDLE)) {
++    LOG(ERROR) << StringPrintf("%s: wrong deactivate ntf; break", __func__);
++    tagState &= ~TAG_DEACTIVATE_TO_SLEEP;
++    tagState &= ~TAG_DEACTIVATE_TO_IDLE;
++    return TAG_STATUS_LOST;
++  }
++  if (NfcTag::getInstance().getActivationState() == NfcTag::Idle) {
++    DLOG_IF(INFO, android::nfc_debug_enabled)
++        << StringPrintf("%s: Tag is in IDLE state", __func__);
++
++    if ((NfcTag::getInstance().mActivationParams_t.mTechLibNfcTypes ==
++         NFC_PROTOCOL_ISO_DEP) &&
++        (NfcTag::getInstance().mActivationParams_t.mTechParams ==
++         NFC_DISCOVERY_TYPE_POLL_A)) {
++      tagState |= TAG_CASHBEE_TYPE;
++      DLOG_IF(INFO, android::nfc_debug_enabled)
++          << StringPrintf("%s: CashBee Detected", __func__);
++      ret = TAG_STATUS_PROPRIETARY;
++    }
++  }
++  return ret;
++}
++
++/*******************************************************************************
++**
++** Function:        performTagReconnect()
++**
++** Description:     Perform proprietary tag connect operation
++**
++** Returns:         TAG_STATUS_PROPRIETARY if proprietary else
++**                  TAG_STATUS_STANDARD.
++**
++*******************************************************************************/
++tTagStatus NfcTagExtns::performTagReconnect() {
++  tTagStatus ret = TAG_STATUS_STANDARD;
++  tNFA_STATUS status = NFA_STATUS_OK;
++  if (tagState & TAG_CASHBEE_TYPE) {
++    ret = TAG_STATUS_PROPRIETARY;
++    DLOG_IF(INFO, android::nfc_debug_enabled)
++        << StringPrintf("%s: Start RF discovery", __func__);
++    if (!(tagState & TAG_ISODEP_DEACTIVATE_FAIL) &&
++        NFA_STATUS_OK != (status = NFA_StartRfDiscovery())) {
++      LOG(ERROR) << StringPrintf("%s: deactivate failed, status = 0x%0X",
++                                 __func__, status);
++      ret = TAG_STATUS_FAILED;
++    }
++  }
++  return ret;
++}
++
++/*******************************************************************************
++**
++** Function:        performTagReconnectFailed()
++**
++** Description:     Proprietary Tag handling on connection failure
++**
++** Returns:         TAG_STATUS_PROPRIETARY if proprietary else
++**                  TAG_STATUS_STANDARD.
++**
++*******************************************************************************/
++tTagStatus NfcTagExtns::performTagReconnectFailed() {
++  tTagStatus ret = TAG_STATUS_STANDARD;
++  tNFA_STATUS status = NFA_STATUS_OK;
++  if (!(tagState & TAG_CASHBEE_TYPE)) {
++    status = NFA_Deactivate(false);
++    if (status != NFA_STATUS_OK) {
++      LOG(ERROR) << StringPrintf("%s: deactivate failed; error status = 0x%X",
++                                 __func__, status);
++      ret = TAG_STATUS_FAILED;
++    }
++  }
++  return ret;
++}
++
++/*******************************************************************************
++**
++** Function:        clearTagState()
++**
++** Description:     Proprietary Tag state cleanup
++**
++** Returns:         TAG_STATUS_PROPRIETARY if proprietary else
++**                  TAG_STATUS_STANDARD.
++**
++*******************************************************************************/
++tTagStatus NfcTagExtns::clearTagState() {
++  tagState &= ~TAG_CASHBEE_TYPE;
++  tagState &= ~TAG_DEACTIVATE_TO_SLEEP;
++  tagState &= ~TAG_DEACTIVATE_TO_IDLE;
++  return TAG_STATUS_SUCCESS;
++}
++
++/*******************************************************************************
++**
++** Function:        checkAndSkipNdef()
++**
++** Description:     Proprietary Tag handling on NDEF check API request
++**
++** Returns:         TAG_STATUS_PROPRIETARY if proprietary else
++**                  TAG_STATUS_STANDARD.
++**
++*******************************************************************************/
++tTagStatus NfcTagExtns::checkAndSkipNdef() {
++#define SKIP_NDEF_NONSTD_MFC() \
++  (IS_MULTIPROTO_MFC_TAG() && (tagState & TAG_SKIP_NDEF_TYPE))
++
++  if (NfcTag::getInstance().mCurrentRequestedProtocol == NFA_PROTOCOL_T3BT ||
++      SKIP_NDEF_NONSTD_MFC()) {
++    clearNonStdMfcState();
++    return TAG_STATUS_PROPRIETARY;
++  }
++  return TAG_STATUS_STANDARD;
++}
++
++/*******************************************************************************
++ **
++ ** Function:        setRfProtocol
++ **
++ ** Description:     Set rf Activated Protocol.
++ **
++ ** Returns:         void
++ **
++ *******************************************************************************/
++void NfcTagExtns::setRfProtocol(tNFA_INTF_TYPE rfProtocol, uint8_t mode) {
++  sTagActivatedProtocol = rfProtocol;
++  if (mode == NFC_DISCOVERY_TYPE_POLL_A ||
++      mode == NFC_DISCOVERY_TYPE_POLL_A_ACTIVE)
++    sTagActivatedMode = TARGET_TYPE_ISO14443_3A;
++  else if (mode == NFC_DISCOVERY_TYPE_POLL_B ||
++           mode == NFC_DISCOVERY_TYPE_POLL_B_PRIME)
++    sTagActivatedMode = TARGET_TYPE_ISO14443_3B;
++  else
++    sTagActivatedMode = sTagConnectedTargetType;
++}
++
++/*******************************************************************************
++ **
++ ** Function:        getActivatedProtocol
++ **
++ ** Description:     Get Activated protocol.
++ **
++ ** Returns:         Returns protocol
++ **
++ *******************************************************************************/
++uint8_t NfcTagExtns::getActivatedProtocol() { return sTagActivatedProtocol; }
++
++/*******************************************************************************
++ **
++ ** Function:        getActivatedMode
++ **
++ ** Description:     Get rf Activated Mode.
++ **
++ ** Returns:         Returns Tech and mode parameter
++ **
++ *******************************************************************************/
++uint8_t NfcTagExtns::getActivatedMode() { return sTagActivatedMode; }
++
++/*******************************************************************************
++ **
++ ** Function:        setCurrentTargetType
++ **
++ ** Description:     Set target handle request for connection
++ **
++ ** Returns:         None
++ **
++ *******************************************************************************/
++void NfcTagExtns::setCurrentTargetType(int type) {
++  sTagConnectedTargetType = type;
++}
++
++/*******************************************************************************
++ **
++ ** Function:        abortTagOperation
++ **
++ ** Description:     Clear all tag state data.
++ **
++ ** Returns:         None
++ **
++ *******************************************************************************/
++void NfcTagExtns::abortTagOperation() {
++  sTagConnectedTargetType = 0;
++  sTagActivatedMode = 0;
++  sTagActivatedProtocol = 0;
++  tagState &= ~TAG_NON_STD_SAK_TYPE;
++}
++
++/******************************************************************************
++**
++** Function:        updateNfcID0Param
++**
++** Description:     Update TypeB NCIID0 from interface activated ntf.
++**
++** Returns:         None.
++**
++*******************************************************************************/
++void NfcTagExtns::updateNfcID0Param(uint8_t* nfcID0) {
++  DLOG_IF(INFO, android::nfc_debug_enabled)
++      << StringPrintf("%s: nfcID0 =%X%X%X%X", __func__, nfcID0[0], nfcID0[1],
++                      nfcID0[2], nfcID0[3]);
++  memcpy(mNfcID0, nfcID0, 4);
++}
+diff --git a/nci/jni/NfcTagExtns.h b/nci/jni/NfcTagExtns.h
+new file mode 100644
+index 00000000..62f4d72f
+--- /dev/null
++++ b/nci/jni/NfcTagExtns.h
+@@ -0,0 +1,156 @@
++/*
++ *  Tag-reading, tag-writing operations.
++ */
++/******************************************************************************
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ *  Copyright 2023 NXP
++ *
++ ******************************************************************************/
++#pragma once
++
++#include <NfcTag.h>
++#include <time.h>
++
++#include <vector>
++
++#include "nfa_api.h"
++#include "nfa_rw_api.h"
++using namespace std;
++
++#define IS_MULTIPROTO_MFC_TAG()                 \
++  (NfcTag::getInstance().mIsMultiProtocolTag && \
++   NfcTag::getInstance().mCurrentRequestedProtocol == NFC_PROTOCOL_MIFARE)
++
++typedef uint32_t tTagStatus;
++
++enum class TAG_API_REQUEST {
++  TAG_RESELECT_API = 1,
++  TAG_CHECK_NDEF_API,
++};
++
++enum class TAG_OPERATION {
++  TAG_UNKNOWN_OPERATION = 0,
++  TAG_HALT_PICC_OPERATION = 1,
++  TAG_DEACTIVATE_OPERATION,
++  TAG_DEACTIVATE_RSP_OPERATION,
++  TAG_RECONNECT_OPERATION,
++  TAG_RECONNECT_FAILED_OPERATION,
++  TAG_CLEAR_STATE_OPERATION,
++  TAG_SKIP_NDEF,
++};
++
++enum class EVENT_TYPE {
++  NFA_SELECT_RESULT_EVENT = 1,
++  NFA_DEACTIVATE_EVENT,
++  NFA_DEACTIVATE_FAIL_EVENT,
++  NFA_DISC_RESULT_EVENT,
++  NFA_ACTIVATED_EVENT,
++};
++
++class NfcTagExtns {
++  tNFC_RESULT_DEVT
++      discovery_ntf; /* Non-standard RF discovery notification details */
++  tNFC_INTF_PARAMS intf_param;  /* Non-standard Interface type and parameters */
++  static NfcTagExtns sTagExtns; /* NfcTagExts static object*/
++  bool isNonStdCardSupported;   /* Configuration file option */
++  struct timespec LastDetectedTime; /* Stores Non-Standard tag detection time */
++  vector<uint32_t>
++      mNonStdCardTimeDiff; /* Predefined reference time within which same tag
++                              detected consecutively*/
++  tNFA_INTF_TYPE sTagActivatedProtocol; /* current activated protocol */
++  uint8_t sTagActivatedMode;            /* current activated mode */
++  int sTagConnectedTargetType; /* Tag technology requested through connect API*/
++
++  /*
++   * Index for Non-standard tag type
++   * into mNonStdCardTimeDiff array*/
++  static const int MFC = 1;
++  static const int ISO_DEP = 2;
++
++  uint8_t mNfcID0[4]; /* ISO-DEP TypeB NfcID value*/
++  uint32_t tagState;  /* Current state in NfcTagExtns being processed*/
++
++  /**
++   * Non-standard tag state as per the API request
++   * or event/notifications received.
++   */
++  static const uint32_t TAG_SKIP_ISODEP_ACT_TYPE = 1 << 0;
++  static const uint32_t TAG_MFC_NON_STD_TYPE = 1 << 1;
++  static const uint32_t TAG_SKIP_NDEF_TYPE = 1 << 2;
++  static const uint32_t TAG_NON_STD_SAK_TYPE = 1 << 3;
++  static const uint32_t TAG_CASHBEE_TYPE = 1 << 4;
++  static const uint32_t TAG_DEACTIVATE_TO_SLEEP = 1 << 5;
++  static const uint32_t TAG_DEACTIVATE_TO_IDLE = 1 << 6;
++  static const uint32_t TAG_ISODEP_DEACTIVATE_FAIL = 1 << 7;
++
++  /*
++   * API invocation based handling for
++   * Non-standard tag
++   * */
++  tTagStatus performHaltPICC();
++  tTagStatus performTagDeactivation();
++  tTagStatus updateTagState();
++  tTagStatus performTagReconnect();
++  tTagStatus performTagReconnectFailed();
++  tTagStatus clearTagState();
++  tTagStatus checkAndSkipNdef();
++
++  /*
++   * Connection callback event based handling for
++   * Non-standard tag
++   * */
++  void processDeactivateEvent(tNFA_CONN_EVT_DATA* eventData, EVENT_TYPE event);
++  void processtagSelectEvent(tNFA_CONN_EVT_DATA* data);
++  void processDiscoveryNtf(tNFA_CONN_EVT_DATA* data);
++  void processActivatedNtf(tNFA_CONN_EVT_DATA* data);
++
++  // Support methods for Non-standard tag handling
++  void storeNonStdTagData();
++  tNFA_STATUS isTagDetectedInRefTime();
++  void updateNonStdTagState(uint8_t protocol, uint8_t more_disc_ntf);
++  void clearNonStdMfcState();
++  void clearNonStdTagData();
++  bool isTagDetectedInRefTime(uint32_t reference);
++  void updateNfcID0Param(uint8_t* nfcID0);
++  bool isListenMode(tNFA_ACTIVATED& activated);
++  bool checkActivatedProtoParameters(tNFA_ACTIVATED& activationData);
++
++ public:
++  /**
++   * Public constants for Non-standard tag handling
++   * status values.
++   */
++  static const int TAG_STATUS_UNKNOWN = -1;  // Default unknown status
++  static const int TAG_STATUS_SUCCESS = 0;   // Normal/No-Error operation
++  static const int TAG_STATUS_STANDARD = 1;  // Identified as Standard TAG
++  static const int TAG_STATUS_PROPRIETARY =
++      2;                                   // Identified as Non-standard TAG
++  static const int TAG_STATUS_LOST = 3;    // Tag detection failed/lost
++  static const int TAG_STATUS_FAILED = 4;  // Failed while processing
++
++  static NfcTagExtns& getInstance();
++  void initialize();
++  tTagStatus processNonStdTagOperation(TAG_API_REQUEST caller,
++                                       TAG_OPERATION operation);
++  void processNonStdNtfHandler(EVENT_TYPE event, tNFA_CONN_EVT_DATA* eventDat);
++  bool isNonStdMFCTagDetected();
++  bool checkAndClearNonStdTagState();
++  uint8_t getActivatedMode();
++  uint8_t getActivatedProtocol();
++  void setRfProtocol(tNFA_INTF_TYPE rfProtocol, uint8_t mode);
++  void setCurrentTargetType(int type);
++  void abortTagOperation();
++  bool shouldSkipProtoActivate(tNFC_PROTOCOL protocol);
++};
+diff --git a/nci/jni/RoutingManager.cpp b/nci/jni/RoutingManager.cpp
+index 05de5ea6..43fa8b01 100755
+--- a/nci/jni/RoutingManager.cpp
++++ b/nci/jni/RoutingManager.cpp
+@@ -128,7 +128,10 @@ RoutingManager::RoutingManager()
+ RoutingManager::~RoutingManager() {}
+ 
+ bool RoutingManager::initialize(nfc_jni_native_data* native) {
+-  static const char fn[] = "RoutingManager::initialize()";
++  //static const char fn[] = "RoutingManager::initialize()";
++  (void)native;
++  return true;
++#if 0
+   mNativeData = native;
+   mRxDataBuffer.clear();
+ 
+@@ -170,6 +173,7 @@ bool RoutingManager::initialize(nfc_jni_native_data* native) {
+   updateDefaultProtocolRoute();
+ 
+   return true;
++#endif
+ }
+ 
+ RoutingManager& RoutingManager::getInstance() {
+@@ -336,6 +340,9 @@ bool RoutingManager::addAidRouting(const uint8_t* aid, uint8_t aidLen,
+   DLOG_IF(INFO, nfc_debug_enabled) << fn << ": enter";
+   uint8_t powerState = 0x01;
+   if (!mSecureNfcEnabled) {
++    /*masking lower 8 bits as power states will be available only in that
++     * region*/
++    power &= 0xFF;
+     if (power == 0x00) {
+       powerState = (route != 0x00) ? mOffHostAidRoutingPowerState : 0x11;
+     } else {
+diff --git a/nci/jni/RoutingManager.h b/nci/jni/RoutingManager.h
+index 9b998287..bc6c4d2f 100755
+--- a/nci/jni/RoutingManager.h
++++ b/nci/jni/RoutingManager.h
+@@ -47,6 +47,8 @@ class RoutingManager {
+   bool setNfcSecure(bool enable);
+   void updateRoutingTable();
+   void eeSetPwrAndLinkCtrl(uint8_t config);
++  static const int PWR_SWTCH_OFF_MASK = 0x02;
++  static const int PWR_BATT_OFF_MASK = 0x04;
+ 
+  private:
+   RoutingManager();
+diff --git a/nci/jni/extns/pn54x/inc/phNxpExtns.h b/nci/jni/extns/pn54x/inc/phNxpExtns.h
+index 17ee6aee..5159b34b 100644
+--- a/nci/jni/extns/pn54x/inc/phNxpExtns.h
++++ b/nci/jni/extns/pn54x/inc/phNxpExtns.h
+@@ -13,7 +13,25 @@
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  */
+-
++/******************************************************************************
++ *
++ *  The original Work has been changed by NXP
++ *
++ *  Copyright 2022 NXP
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ ******************************************************************************/
+ #ifndef _PHNXPEXTNS_H_
+ #define _PHNXPEXTNS_H_
+ 
+@@ -48,6 +66,7 @@ NFCSTATUS EXTNS_CheckMfcResponse(uint8_t** sTransceiveData,
+ void MfcPresenceCheckResult(NFCSTATUS status);
+ void MfcResetPresenceCheckStatus(void);
+ NFCSTATUS EXTNS_GetPresenceCheckStatus(void);
++void EXTNS_DebugAgcCfg(uint8_t rfState);
+ 
+ /*
+  * Events from JNI for NXP Extensions
+diff --git a/nci/jni/extns/pn54x/src/mifare/phNxpExtns_MifareStd.cpp b/nci/jni/extns/pn54x/src/mifare/phNxpExtns_MifareStd.cpp
+index 9c1cfdca..12751a5a 100644
+--- a/nci/jni/extns/pn54x/src/mifare/phNxpExtns_MifareStd.cpp
++++ b/nci/jni/extns/pn54x/src/mifare/phNxpExtns_MifareStd.cpp
+@@ -1386,6 +1386,11 @@ static NFCSTATUS phNciNfc_MfCreateXchgDataHdr(
+   NFCSTATUS status = NFCSTATUS_SUCCESS;
+   uint8_t i = 0;
+ 
++  if (tTranscvInfo.tSendData.wLen > (MAX_BUFF_SIZE - 1)) {
++    android_errorWriteLog(0x534e4554, "246932269");
++    return NFCSTATUS_FAILED;
++  }
++
+   buff[i++] = phNciNfc_e_MfRawDataXchgHdr;
+   memcpy(&buff[i], tTranscvInfo.tSendData.pBuff, tTranscvInfo.tSendData.wLen);
+   *buffSz = i + tTranscvInfo.tSendData.wLen;
+diff --git a/nci/jni/extns/pn54x/src/phNxpExtns.cpp b/nci/jni/extns/pn54x/src/phNxpExtns.cpp
+index 99f03c5f..d57c53c2 100644
+--- a/nci/jni/extns/pn54x/src/phNxpExtns.cpp
++++ b/nci/jni/extns/pn54x/src/phNxpExtns.cpp
+@@ -13,6 +13,25 @@
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  */
++/******************************************************************************
++ *
++ *  The original Work has been changed by NXP
++ *
++ *  Copyright 2022 NXP
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ ******************************************************************************/
+ #ifdef ESE_NFC_SYNCHRONIZATION
+ #include <linux/ese-nfc-sync.h>
+ #endif
+@@ -96,6 +115,20 @@ void EXTNS_Close(void) {
+   return;
+ }
+ 
++/*******************************************************************************
++**
++** Function         EXTNS_GetStatus
++**
++** Description      This function Gets the Status of the Extns.
++**
++** Returns          None
++**
++*******************************************************************************/
++
++phNxpExtns_Status EXTNS_GetStatus(void) {
++  return gphNxpExtns_Context.Extns_status;
++}
++
+ /*******************************************************************************
+ **
+ ** Function         EXTNS_MfcCallBack
+diff --git a/nci/jni/extns/pn54x/src/phNxpExtns_DebugAgc.cpp b/nci/jni/extns/pn54x/src/phNxpExtns_DebugAgc.cpp
+new file mode 100644
+index 00000000..116f042d
+--- /dev/null
++++ b/nci/jni/extns/pn54x/src/phNxpExtns_DebugAgc.cpp
+@@ -0,0 +1,309 @@
++/******************************************************************************
++ *
++ *  Copyright 2020,2023 NXP
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ ******************************************************************************/
++#include <android-base/stringprintf.h>
++#include <base/logging.h>
++#include <nfa_api.h>
++#include <phNxpExtns.h>
++#include <SyncEvent.h>
++#include "nfc_config.h"
++
++using android::base::StringPrintf;
++
++#if (NFC_AGC_DEBUG_FEATURE == TRUE)
++
++/* AGC Command Frame period in ms */
++#define NFC_AGC_INTERFRAME_PERIOD 500U
++#define NFC_AGC_RSSI_VAL_SIZE     0xFFU
++#define NFC_AGC_RESP_WAIT_TIME    1000U
++
++/*
++ * Extns module status
++ */
++
++typedef enum { EXTNS_STATUS_OPEN = 0, EXTNS_STATUS_CLOSE } phNxpExtns_Status;
++
++enum AgcState
++{
++    AgcStateOff = 0,
++    AgcStateStarted = 1,
++    AgcStateRunning = 2,
++    AgcStateStopped = 3,
++    AgcStateExit = AgcStateOff
++};
++
++typedef struct debugAgcEnable
++{
++    SyncEvent     debugAgcSyncEvt;
++    SyncEvent     debugAgcStopEvt;
++    tNFA_STATUS   debugAgcCmdStatus;
++    uint8_t       debugAgcRspData[NFC_AGC_RSSI_VAL_SIZE];
++    uint8_t       debugAgcRspLen;
++    AgcState      debugAgcState; // flag to indicate agc ongoing, running or stopped.
++    bool          debugAgcEnable; // config param
++}debugAgcEnable_t;
++
++static debugAgcEnable_t enableDebugAgc;
++static void *enableAgcThread(void *arg);
++void EXTNS_DebugAgcCfg(uint8_t rfState);
++static void setAgcProcessState(AgcState state);
++static AgcState getAgcProcessState();
++static tNFA_STATUS sendAgcDebugCmd();
++
++extern bool nfc_debug_enabled;
++
++extern phNxpExtns_Status EXTNS_GetStatus(void);
++
++/*******************************************************************************
++**
++** Function:        phNxpAgcDebug_Cfg
++**
++** Description:     Enable/Disable Dynamic RSSI feature.
++**
++** Returns:         None
++**
++*******************************************************************************/
++void EXTNS_DebugAgcCfg(uint8_t rfState)
++{
++    unsigned long enableAgcDebug = 0;
++    enableAgcDebug = NfcConfig::getUnsigned(NAME_NXP_AGC_DEBUG_ENABLE, 0x00);
++    enableDebugAgc.debugAgcEnable = (bool) enableAgcDebug;
++    DLOG_IF(INFO, nfc_debug_enabled)
++        << StringPrintf("%s ,%lu:", __func__, enableAgcDebug);
++
++    if(EXTNS_STATUS_CLOSE == EXTNS_GetStatus())
++    {
++        SyncEventGuard guard(enableDebugAgc.debugAgcStopEvt);
++        enableDebugAgc.debugAgcStopEvt.notifyOne ();
++        return;
++    }
++
++    if(enableDebugAgc.debugAgcEnable && rfState )
++    {
++        if (getAgcProcessState() == AgcStateOff)
++        {
++            pthread_t agcThread;
++            pthread_attr_t attr;
++            pthread_attr_init(&attr);
++            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
++            (void)pthread_create(&agcThread, &attr, enableAgcThread, NULL);
++            pthread_attr_destroy(&attr);
++        }
++    }
++    else
++    {
++        if(!enableDebugAgc.debugAgcEnable)
++        {
++            DLOG_IF(INFO, nfc_debug_enabled)
++                << StringPrintf("%s AgcDebug not enabled", __func__);
++        }
++        else
++        {
++            SyncEventGuard syncGuard(enableDebugAgc.debugAgcSyncEvt);
++            enableDebugAgc.debugAgcSyncEvt.notifyOne ();
++            SyncEventGuard stopGuard(enableDebugAgc.debugAgcStopEvt);
++            enableDebugAgc.debugAgcStopEvt.notifyOne ();
++        }
++    }
++}
++
++void *enableAgcThread(void *arg)
++{
++    tNFA_STATUS status = NFA_STATUS_FAILED;
++
++    setAgcProcessState(AgcStateStarted);
++
++    while( getAgcProcessState())
++    {
++        if(getAgcProcessState() == AgcStateStopped)
++        {
++            break;
++        }
++
++        if(EXTNS_STATUS_CLOSE == EXTNS_GetStatus())
++        {
++            setAgcProcessState(AgcStateExit);
++            break;
++        }
++
++        status = sendAgcDebugCmd();
++        if(status == NFA_STATUS_OK)
++        {
++            DLOG_IF(INFO, nfc_debug_enabled)
++                << StringPrintf("%s:  enable success exit", __func__);
++        }
++#if 1
++        SyncEventGuard guard(enableDebugAgc.debugAgcStopEvt);
++        bool stopWait = enableDebugAgc.debugAgcStopEvt.wait(NFC_AGC_INTERFRAME_PERIOD);
++        if (stopWait)
++        {
++            setAgcProcessState(AgcStateExit);
++            break;
++        }
++#else
++        usleep((NFC_AGC_INTERFRAME_PERIOD*1000));
++#endif
++    }
++    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: exit", __func__);
++    pthread_exit(NULL);
++    return NULL;
++}
++
++/*******************************************************************************
++ **
++ ** Function:       setAgcProcessState
++ **
++ ** Description:    sets the AGC process to stop
++ **
++ ** Returns:        None .
++ **
++ *******************************************************************************/
++void setAgcProcessState(AgcState state)
++{
++    enableDebugAgc.debugAgcState = state;
++}
++
++/*******************************************************************************
++ **
++ ** Function:       getAgcProcessState
++ **
++ ** Description:    returns the AGC process state.
++ **
++ ** Returns:        true/false .
++ **
++ *******************************************************************************/
++static AgcState getAgcProcessState()
++{
++    return enableDebugAgc.debugAgcState;
++}
++
++/*******************************************************************************
++ **
++ ** Function:        printDataByte()
++ **
++ ** Description:     Prints the AGC values
++ **
++ ** Returns:         success/failure
++ **
++ *******************************************************************************/
++static void printDataByte(uint16_t param_len, uint8_t *p_param)
++{
++    char print_buffer[param_len * 3 + 1];
++    memset (print_buffer, 0, sizeof(print_buffer));
++    for (int i = 3; i < param_len; i++)
++    {
++        snprintf(&print_buffer[i * 2], 3 ,"%02X", p_param[i]);
++    }
++    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
++        "%s: AGC Dynamic RSSI values  = %s",__func__, print_buffer);
++}
++
++static void nfcManagerSetCbStatus(tNFA_STATUS status)
++{
++	enableDebugAgc.debugAgcCmdStatus = status;
++}
++
++static tNFA_STATUS nfcManagerGetCbStatus(void)
++{
++    return enableDebugAgc.debugAgcCmdStatus;
++}
++
++/*******************************************************************************
++ **
++ ** Function:        NxpResponse_EnableAGCDebug_Cb()
++ **
++ ** Description:     Cb to handle the response of AGC command
++ **
++ ** Returns:         success/failure
++ **
++ *******************************************************************************/
++static void nfcManagerAgcDebugCb(uint8_t event, uint16_t param_len, uint8_t *p_param)
++{
++    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
++        "%s: Received length data = 0x%x",__func__, param_len);
++    if(param_len > 0)
++    {
++    	enableDebugAgc.debugAgcRspLen = param_len;
++        memcpy(enableDebugAgc.debugAgcRspData, p_param,
++                            enableDebugAgc.debugAgcRspLen);
++        nfcManagerSetCbStatus(NFA_STATUS_OK);
++    }
++    else
++    {
++        nfcManagerSetCbStatus(NFA_STATUS_FAILED);
++    }
++    SyncEventGuard guard(enableDebugAgc.debugAgcSyncEvt);
++    enableDebugAgc.debugAgcSyncEvt.notifyOne ();
++}
++
++
++/*******************************************************************************
++ **
++ ** Function:        sendAgcDebugCmd()
++ **
++ ** Description:     Sends the AGC Debug command.This enables dynamic RSSI
++ **                  look up table filling for different "TX RF settings" and enables
++ **                  MWdebug prints.
++ **
++ ** Returns:         success/failure
++ **
++ *******************************************************************************/
++static tNFA_STATUS sendAgcDebugCmd()
++{
++    tNFA_STATUS status = NFA_STATUS_FAILED;
++    uint8_t rssi_val_nci_1_0[] = {0x2F, 0x33, 0x04, 0x40, 0x00, 0x40, 0xD8};
++    uint8_t rssi_val_nci_2_0[] = {0x2F, 0x32, 0x01, 0x01};
++    uint8_t *get_rssi_val;
++    uint8_t rssi_cmd_length;
++
++    if(NFC_GetNCIVersion() == NCI_VERSION_1_0){
++        get_rssi_val = rssi_val_nci_1_0;
++        rssi_cmd_length = sizeof(rssi_val_nci_1_0);
++    }else{
++        get_rssi_val = rssi_val_nci_2_0;
++        rssi_cmd_length = sizeof(rssi_val_nci_2_0);
++    }
++
++    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
++        "%s: Enter",__func__);
++    SyncEventGuard guard (enableDebugAgc.debugAgcSyncEvt);
++    nfcManagerSetCbStatus(NFA_STATUS_FAILED);
++	enableDebugAgc.debugAgcRspLen = 0;
++    memset(enableDebugAgc.debugAgcRspData, 0, NFC_AGC_RSSI_VAL_SIZE);
++    status = NFA_SendRawVsCommand(rssi_cmd_length, get_rssi_val, nfcManagerAgcDebugCb);
++    if (status == NFA_STATUS_OK)
++    {
++        DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
++            "%s: Success NFA_SendRawVsCommand",__func__);
++        enableDebugAgc.debugAgcSyncEvt.wait(NFC_AGC_RESP_WAIT_TIME); /* wait for callback */
++    }
++    else
++    {    status = NFA_STATUS_FAILED;
++         DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
++              "%s: Failed NFA_SendRawVsCommand", __func__);
++    }
++    status = nfcManagerGetCbStatus();
++    if(status == NFA_STATUS_OK && enableDebugAgc.debugAgcRspLen > 0)
++    {
++        printDataByte(enableDebugAgc.debugAgcRspLen, enableDebugAgc.debugAgcRspData);
++    }
++    DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
++        "%s: Exit",__func__);
++    return status;
++}
++
++#endif
+diff --git a/nci/src/com/android/nfc/dhimpl/NativeNfcManager.java b/nci/src/com/android/nfc/dhimpl/NativeNfcManager.java
+index 68917572..d98397ee 100755
+--- a/nci/src/com/android/nfc/dhimpl/NativeNfcManager.java
++++ b/nci/src/com/android/nfc/dhimpl/NativeNfcManager.java
+@@ -14,6 +14,26 @@
+  * limitations under the License.
+  */
+ 
++/******************************************************************************
++ *
++ *  The original Work has been changed by NXP.
++ *
++ *  Copyright 2023 NXP
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ ******************************************************************************/
++
+ package com.android.nfc.dhimpl;
+ 
+ import android.content.Context;
+@@ -459,6 +479,8 @@ public class NativeNfcManager implements DeviceHost {
+         mListener.onRemoteFieldActivated();
+     }
+ 
++    private void notifyNfcHalBinderDied() { mListener.onNfcHalBinderDied(); }
++
+     private void notifyRfFieldDeactivated() {
+         mListener.onRemoteFieldDeactivated();
+     }
+diff --git a/src/com/android/nfc/DeviceHost.java b/src/com/android/nfc/DeviceHost.java
+index 2ce617e6..5ca71910 100644
+--- a/src/com/android/nfc/DeviceHost.java
++++ b/src/com/android/nfc/DeviceHost.java
+@@ -13,6 +13,25 @@
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  */
++/******************************************************************************
++ *
++ *  The original Work has been changed by NXP.
++ *
++ *  Copyright 2023 NXP
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ ******************************************************************************/
+ 
+ package com.android.nfc;
+ 
+@@ -54,6 +73,8 @@ public interface DeviceHost {
+         public void onEeUpdated();
+ 
+         public void onHwErrorReported();
++
++        public void onNfcHalBinderDied();
+     }
+ 
+     public interface TagEndpoint {
+diff --git a/src/com/android/nfc/NfcService.java b/src/com/android/nfc/NfcService.java
+index 6ab45a58..ba9504d5 100644
+--- a/src/com/android/nfc/NfcService.java
++++ b/src/com/android/nfc/NfcService.java
+@@ -14,6 +14,26 @@
+  * limitations under the License.
+  */
+ 
++/******************************************************************************
++ *
++ *  The original Work has been changed by NXP.
++ *
++ *  Copyright 2022-2023 NXP
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ ******************************************************************************/
++
+ package com.android.nfc;
+ 
+ import android.app.ActivityManager;
+@@ -36,6 +56,7 @@ import android.content.pm.PackageInfo;
+ import android.content.pm.PackageManager;
+ import android.content.pm.UserInfo;
+ import android.content.res.Resources.NotFoundException;
++import android.hardware.emvco.DiscoveryMode;
+ import android.media.AudioAttributes;
+ import android.media.SoundPool;
+ import android.net.Uri;
+@@ -87,7 +108,6 @@ import android.util.EventLog;
+ import android.util.Log;
+ import android.util.proto.ProtoOutputStream;
+ import android.widget.Toast;
+-
+ import com.android.internal.logging.MetricsLogger;
+ import com.android.internal.util.ArrayUtils;
+ import com.android.nfc.DeviceHost.DeviceHostListener;
+@@ -99,13 +119,18 @@ import com.android.nfc.DeviceHost.TagEndpoint;
+ import com.android.nfc.cardemulation.CardEmulationManager;
+ import com.android.nfc.dhimpl.NativeNfcManager;
+ import com.android.nfc.handover.HandoverDataParser;
+-
++import com.nxp.emvco.INfcStateChangeRequestCallback;
++import com.nxp.emvco.ProfileDiscovery;
+ import java.io.File;
+ import java.io.FileDescriptor;
+ import java.io.FileOutputStream;
+ import java.io.IOException;
+ import java.io.PrintWriter;
+ import java.io.UnsupportedEncodingException;
++import java.lang.reflect.Constructor;
++import java.lang.reflect.Field;
++import java.lang.reflect.InvocationTargetException;
++import java.lang.reflect.Method;
+ import java.nio.ByteBuffer;
+ import java.nio.file.Files;
+ import java.util.ArrayList;
+@@ -120,6 +145,7 @@ import java.util.Scanner;
+ import java.util.Set;
+ import java.util.concurrent.atomic.AtomicInteger;
+ import java.util.stream.Collectors;
++import android.hardware.emvco.DiscoveryMode;
+ 
+ public class NfcService implements DeviceHostListener {
+     static final boolean DBG = SystemProperties.getBoolean("persist.nfc.debug_enabled", false);
+@@ -150,7 +176,6 @@ public class NfcService implements DeviceHostListener {
+     static final String NATIVE_LOG_FILE_NAME = "native_crash_logs";
+     static final String NATIVE_LOG_FILE_PATH = "/data/misc/nfc/logs";
+     static final int NATIVE_CRASH_FILE_SIZE = 1024 * 1024;
+-
+     static final int MSG_NDEF_TAG = 0;
+     static final int MSG_LLCP_LINK_ACTIVATION = 1;
+     static final int MSG_LLCP_LINK_DEACTIVATED = 2;
+@@ -172,8 +197,7 @@ public class NfcService implements DeviceHostListener {
+     static final int MSG_PREFERRED_PAYMENT_CHANGED = 18;
+     static final int MSG_TOAST_DEBOUNCE_EVENT = 19;
+     static final int MSG_DELAY_POLLING = 20;
+-
+-    static final String MSG_ROUTE_AID_PARAM_TAG = "power";
++    static final int MSG_NFC_HAL_DIED = 21;
+ 
+     // Negative value for NO polling delay
+     static final int NO_POLL_DELAY = -1;
+@@ -243,8 +267,10 @@ public class NfcService implements DeviceHostListener {
+     // Timeout to re-apply routing if a tag was present and we postponed it
+     private static final int APPLY_ROUTING_RETRY_TIMEOUT_MS = 5000;
+ 
+-    private static final VibrationAttributes HARDWARE_FEEDBACK_VIBRATION_ATTRIBUTES =
+-            VibrationAttributes.createForUsage(VibrationAttributes.USAGE_HARDWARE_FEEDBACK);
++    private static final VibrationAttributes
++        HARDWARE_FEEDBACK_VIBRATION_ATTRIBUTES =
++            VibrationAttributes.createForUsage(
++                VibrationAttributes.USAGE_HARDWARE_FEEDBACK);
+ 
+     private final UserManager mUserManager;
+ 
+@@ -259,6 +285,10 @@ public class NfcService implements DeviceHostListener {
+     private final NfcUnlockManager mNfcUnlockManager;
+ 
+     private final BackupManager mBackupManager;
++    Class mNfcExtnsClass;
++    Object  mNfcExtnsObj;
++    Class mNfcExtraClass;
++    Object mNfcExtraObj;
+ 
+     // cached version of installed packages requesting Android.permission.NFC_TRANSACTION_EVENTS
+     // for current user and profiles. The Integer part is the userId.
+@@ -362,6 +392,7 @@ public class NfcService implements DeviceHostListener {
+     private static boolean sToast_debounce = false;
+     private static int sToast_debounce_time_ms = 3000;
+     public  static boolean sIsDtaMode = false;
++    private static boolean sIsNFCBinderDied = false;
+ 
+     private IVrManager vrManager;
+     boolean mIsVrModeEnabled;
+@@ -369,11 +400,44 @@ public class NfcService implements DeviceHostListener {
+     private final boolean mIsAlwaysOnSupported;
+     private final Set<INfcControllerAlwaysOnListener> mAlwaysOnListeners =
+             Collections.synchronizedSet(new HashSet<>());
++    private ProfileDiscovery mProfileDiscovery;
++
++    static final String MSG_ROUTE_AID_PARAM_TAG = "power";
+ 
+     public static NfcService getInstance() {
+         return sService;
+     }
+ 
++    private INfcStateChangeRequestCallback mNfcStateChangeCallback =
++        new INfcStateChangeRequestCallback() {
++          @Override
++          public void enableNfc(boolean turnOn) {
++              Log.i(TAG, "enableNfc turnOn:" +turnOn);
++              if (turnOn) {
++                    if (mState == NfcAdapter.STATE_ON) {
++                        Log.d(TAG, "NFC is on already. Sending NFC state to EMVCo");
++                        mProfileDiscovery.onNfcStateChange(mState);
++                    } else {
++                      if (sIsNFCBinderDied) {
++                        Log.d(
++                            TAG,
++                            "Enable NFC request received during deinitialize, so Ignoring. After Nfc abort, Nfc will be ON");
++                      } else {
++                        new EnableDisableTask().execute(TASK_ENABLE);
++                      }
++                    }
++              } else {
++                    if (mState == NfcAdapter.STATE_OFF) {
++                        Log.d(TAG, "NFC is off already. Sending NFC state to EMVCo");
++                        mProfileDiscovery.onNfcStateChange(mState);
++                    } else {
++                        new EnableDisableTask().execute(TASK_DISABLE);
++                    }
++              }
++          }
++
++        };
++
+     @Override
+     public void onRemoteEndpointDiscovered(TagEndpoint tag) {
+         sendMessage(NfcService.MSG_NDEF_TAG, tag);
+@@ -468,6 +532,11 @@ public class NfcService implements DeviceHostListener {
+         new EnableDisableTask().execute(TASK_ENABLE);
+     }
+ 
++    @Override
++    public void onNfcHalBinderDied() {
++      sendMessage(NfcService.MSG_NFC_HAL_DIED, null);
++    }
++
+     final class ReaderModeParams {
+         public int flags;
+         public IAppCallback callback;
+@@ -482,13 +551,30 @@ public class NfcService implements DeviceHostListener {
+         mNfcAdapter = new NfcAdapterService();
+         mRoutingTableParser = new RoutingTableParser();
+         Log.i(TAG, "Starting NFC service");
+-
++        mProfileDiscovery = ProfileDiscovery.getInstance(mContext);
++        mProfileDiscovery.registerNFCStateChangeCallback(mNfcStateChangeCallback);
+         sService = this;
+ 
+         mScreenStateHelper = new ScreenStateHelper(mContext);
+         mContentResolver = mContext.getContentResolver();
+         mDeviceHost = new NativeNfcManager(mContext, this);
+ 
++        try {
++          Object[] objargs = new Object[] {mContext};
++          mNfcExtnsClass = Class.forName("com.android.nfc.NfcExtnsService");
++          Constructor mNfcConstr =
++              mNfcExtnsClass.getDeclaredConstructor(Context.class);
++          mNfcExtnsObj = mNfcConstr.newInstance(objargs);
++        } catch(ClassNotFoundException | IllegalAccessException e) {
++            Log.d(TAG, "NfcExtnsService not found");
++        } catch (InstantiationException e) {
++            Log.e(TAG, "NfcExtnsService object Instantaiation failed");
++        }   catch (NoSuchMethodException e ) {
++            Log.e(TAG, " NoSuchMethodException");
++        }  catch (InvocationTargetException e) {
++            Log.e(TAG, " InvocationTargetException");
++        }
++
+         mNfcUnlockManager = NfcUnlockManager.getInstance();
+ 
+         mHandoverDataParser = new HandoverDataParser();
+@@ -783,7 +869,7 @@ public class NfcService implements DeviceHostListener {
+                     disableInternal();
+                     break;
+                 case TASK_BOOT:
+-                    boolean initialized;
++                    boolean initialized = false;
+                     if (mPrefs.getBoolean(PREF_FIRST_BOOT, true)) {
+                         Log.i(TAG, "First Boot");
+                         mPrefsEditor.putBoolean(PREF_FIRST_BOOT, false);
+@@ -793,8 +879,14 @@ public class NfcService implements DeviceHostListener {
+                     }
+                     Log.d(TAG, "checking on firmware download");
+                     if (mPrefs.getBoolean(PREF_NFC_ON, NFC_ON_DEFAULT)) {
+-                        Log.d(TAG, "NFC is on. Doing normal stuff");
+-                        initialized = enableInternal();
++                        Log.d(TAG, "NFC is on. Doing normal stuff. currentProfileMode:"
++                                + mProfileDiscovery.getCurrentDiscoveryMode());
++                        if (DiscoveryMode.EMVCO ==
++                            mProfileDiscovery.getCurrentDiscoveryMode()) {
++                          mProfileDiscovery.setEMVCoMode(0, false);
++                        } else {
++                          initialized = enableInternal();
++                        }
+                     } else {
+                         Log.d(TAG, "NFC is off.  Checking firmware version");
+                         initialized = mDeviceHost.checkFirmware();
+@@ -1054,6 +1146,7 @@ public class NfcService implements DeviceHostListener {
+                 intent.setFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
+                 intent.putExtra(NfcAdapter.EXTRA_ADAPTER_STATE, mState);
+                 mContext.sendBroadcastAsUser(intent, UserHandle.CURRENT);
++                mProfileDiscovery.onNfcStateChange(mState);
+             }
+         }
+ 
+@@ -1157,7 +1250,10 @@ public class NfcService implements DeviceHostListener {
+         @Override
+         public boolean enable() throws RemoteException {
+             NfcPermissions.enforceAdminPermissions(mContext);
+-
++            if (DiscoveryMode.EMVCO ==
++                mProfileDiscovery.getCurrentDiscoveryMode()) {
++              mProfileDiscovery.setEMVCoMode(0, false);
++            }
+             saveNfcOnSetting(true);
+ 
+             new EnableDisableTask().execute(TASK_ENABLE);
+@@ -1168,7 +1264,6 @@ public class NfcService implements DeviceHostListener {
+         @Override
+         public boolean disable(boolean saveState) throws RemoteException {
+             NfcPermissions.enforceAdminPermissions(mContext);
+-
+             if (saveState) {
+                 saveNfcOnSetting(false);
+             }
+@@ -2882,10 +2977,20 @@ public class NfcService implements DeviceHostListener {
+                     }
+                     if (DBG) Log.d(TAG, "Polling is started");
+                     break;
++                case MSG_NFC_HAL_DIED:
++                    Log.e(TAG, "NFC HAL Died. turning off EMVCo");
++                    sIsNFCBinderDied = true;
++                    if (DiscoveryMode.EMVCO ==
++                        mProfileDiscovery.getCurrentDiscoveryMode()) {
++                      mProfileDiscovery.setEMVCoMode(0, false);
++                    }
++                  break;
+                 default:
+                     Log.e(TAG, "Unknown message received");
+                     break;
+             }
++
++        }
+         }
+ 
+         private void sendOffHostTransactionEvent(byte[] aid, byte[] data, byte[] readerByteArray) {
+@@ -3189,7 +3294,6 @@ public class NfcService implements DeviceHostListener {
+                 return;
+             }
+         }
+-    }
+ 
+     private NfcServiceHandler mHandler = new NfcServiceHandler();
+ 
+diff --git a/src/com/android/nfc/cardemulation/AidRoutingManager.java b/src/com/android/nfc/cardemulation/AidRoutingManager.java
+index 38e0af74..0ae32915 100644
+--- a/src/com/android/nfc/cardemulation/AidRoutingManager.java
++++ b/src/com/android/nfc/cardemulation/AidRoutingManager.java
+@@ -242,8 +242,8 @@ public class AidRoutingManager {
+ 
+         synchronized (mLock) {
+             if (routeForAid.equals(mRouteForAid) && !force) {
+-                if (DBG) Log.d(TAG, "Routing table unchanged, not updating");
+-                return false;
++              if (DBG) Log.d(TAG, "Routing table unchanged, not updating");
++              return false;
+             }
+ 
+             // Otherwise, update internal structures and commit new routing
+@@ -416,13 +416,9 @@ public class AidRoutingManager {
+                 int route = aidEntry.getValue().route;
+                 int aidType = aidEntry.getValue().aidInfo;
+                 String aid = aidEntry.getKey();
+-                int power = aidEntry.getValue().power;
+-                if (DBG) {
+-                    Log.d(TAG, "commit aid:" + aid + ",route:" + route
+-                        + ",aidtype:" + aidType + ", power state:" + power);
+-                }
++                if (DBG) Log.d (TAG, "commit aid:"+aid+"route:"+route+"aidtype:"+aidType);
+ 
+-                NfcService.getInstance().routeAids(aid, route, aidType, power);
++                NfcService.getInstance().routeAids(aid, route, aidType,0x01);
+             }
+         }
+ 

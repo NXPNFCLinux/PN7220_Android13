@@ -1,0 +1,144 @@
+diff --git a/db845c.mk b/db845c.mk
+index e949af1..dafdefd 100644
+--- a/db845c.mk
++++ b/db845c.mk
+@@ -7,3 +7,6 @@ TARGET_USES_BOOT_HDR_V3 ?= true
+ PRODUCT_NAME := db845c
+ PRODUCT_DEVICE := db845c
+ PRODUCT_BRAND := Android
++
++$(call inherit-product, vendor/nxp/nfc/device-nfc.mk)
++$(call inherit-product, vendor/nxp/emvco/device-emvco.mk)
+\ No newline at end of file
+diff --git a/db845c/BoardConfig.mk b/db845c/BoardConfig.mk
+index 018213a..607feff 100644
+--- a/db845c/BoardConfig.mk
++++ b/db845c/BoardConfig.mk
+@@ -1,4 +1,5 @@
+ include device/linaro/dragonboard/BoardConfigCommon.mk
++include vendor/nxp/nfc/BoardConfigNfc.mk
+ 
+ # Primary Arch
+ TARGET_ARCH := arm64
+@@ -32,13 +33,15 @@ BOARD_KERNEL_BASE := 0x80000000
+ BOARD_KERNEL_CMDLINE := earlycon firmware_class.path=/vendor/firmware/ androidboot.hardware=db845c
+ BOARD_KERNEL_CMDLINE += init=/init androidboot.boot_devices=soc@0/1d84000.ufshc printk.devkmsg=on
+ BOARD_KERNEL_CMDLINE += deferred_probe_timeout=30
++BOARD_KERNEL_CMDLINE += video=HDMI-A-1:1920x1080@60e drm.edid_firmware=edid/1920x1080.bin
++BOARD_KERNEL_CMDLINE += androidboot.selinux=permissive
+ BOARD_KERNEL_CMDLINE += pcie_pme=nomsi #For WiFi to work on rb5
+ BOARD_KERNEL_CMDLINE += qcom_geni_serial.con_enabled=1
+ 
+ # Image Configuration
+ BOARD_BOOTIMAGE_PARTITION_SIZE := 103079215104 #96M
+ BOARD_USERDATAIMAGE_PARTITION_SIZE := 21474836480 #20G
+-BOARD_FLASH_BLOCK_SIZE := 512
++BOARD_FLASH_BLOCK_SIZE := 4096
+ # Super partition
+ BOARD_SUPER_PARTITION_SIZE := 12437225472
+ BOARD_DB_DYNAMIC_PARTITIONS_SIZE := 12433031168 # Reserve 4M for DAP metadata
+diff --git a/device-common.mk b/device-common.mk
+index 6601cda..4409288 100644
+--- a/device-common.mk
++++ b/device-common.mk
+@@ -21,7 +21,9 @@ TARGET_USES_GKI ?= true
+ ifeq ($(TARGET_USES_GKI), true)
+   TARGET_MODS := $(wildcard $(TARGET_KERNEL_DIR)/*.ko)
+   ifneq ($(TARGET_MODS),)
+-    BOARD_VENDOR_RAMDISK_KERNEL_MODULES := $(TARGET_MODS)
++    DB845C_ONLY_VENDOR := $(wildcard $(TARGET_KERNEL_DIR)/nxpnfc_i2c.ko)
++    BOARD_VENDOR_KERNEL_MODULES += $(DB845C_ONLY_VENDOR)
++    BOARD_VENDOR_RAMDISK_KERNEL_MODULES := $(filter-out $(DB845C_ONLY_VENDOR),$(TARGET_MODS))
+   endif
+ endif
+ 
+diff --git a/full.mk b/full.mk
+index fc1c0be..5083db4 100644
+--- a/full.mk
++++ b/full.mk
+@@ -246,6 +246,8 @@ PRODUCT_COPY_FILES +=  \
+     frameworks/native/data/etc/android.software.opengles.deqp.level-2020-03-01.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.software.opengles.deqp.level.xml \
+     frameworks/native/data/etc/android.software.device_admin.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.software.device_admin.xml
+ 
++TARGET_PRODUCT_PROP := $(LOCAL_PATH)/product.prop
++
+ DEVICE_MANIFEST_FILE := device/linaro/dragonboard/manifest.xml
+ DEVICE_MATRIX_FILE := device/linaro/dragonboard/compatibility_matrix.xml
+ 
+diff --git a/init.common.rc b/init.common.rc
+index f15640a..51a42c6 100644
+--- a/init.common.rc
++++ b/init.common.rc
+@@ -61,6 +61,7 @@ on property:sys.boot_completed=1
+ 
+ service wpa_supplicant /vendor/bin/hw/wpa_supplicant \
+                        -Dnl80211 -g@android:wpa_wlan0
++    interface aidl android.hardware.wifi.supplicant.ISupplicant/default
+     interface android.hardware.wifi.supplicant@1.0::ISupplicant default
+     interface android.hardware.wifi.supplicant@1.1::ISupplicant default
+     socket wpa_wlan0 dgram 660 wifi wifi
+diff --git a/product.prop b/product.prop
+new file mode 100644
+index 0000000..fc5a2da
+--- /dev/null
++++ b/product.prop
+@@ -0,0 +1,25 @@
++# System props to enable aac vbr feature
++persist.bluetooth.a2dp_aac.vbr_supported=true
++
++# Set supported Bluetooth profiles to enabled
++bluetooth.profile.asha.central.enabled=true
++bluetooth.profile.a2dp.source.enabled=true
++bluetooth.profile.avrcp.target.enabled=true
++bluetooth.profile.bap.broadcast.assist.enabled=true
++bluetooth.profile.bap.unicast.server.enabled=true
++bluetooth.profile.bas.client.enabled=true
++bluetooth.profile.csip.set_coordinator.enabled=true
++bluetooth.profile.gatt.enabled=true
++bluetooth.profile.hap.client.enabled=true
++bluetooth.profile.hfp.ag.enabled=true
++bluetooth.profile.hid.device.enabled=true
++bluetooth.profile.hid.host.enabled=true
++bluetooth.profile.map.server.enabled=true
++bluetooth.profile.mcp.server.enabled=true
++bluetooth.profile.opp.enabled=true
++bluetooth.profile.pan.nap.enabled=true
++bluetooth.profile.pan.panu.enabled=true
++bluetooth.profile.pbap.server.enabled=true
++bluetooth.profile.sap.server.enabled=true
++bluetooth.profile.tbs.server.enabled=true
++bluetooth.profile.vc.server.enabled=true
+diff --git a/qcom/init.qcom.rc b/qcom/init.qcom.rc
+index 38d8d00..0cb7bf9 100644
+--- a/qcom/init.qcom.rc
++++ b/qcom/init.qcom.rc
+@@ -37,6 +37,8 @@ on early-init
+     start set_hw
+     exec - root -- /vendor/bin/qrtr-cfg 1
+     start qrtr-ns
++    exec u:r:vendor_modprobe:s0 -- /vendor/bin/modprobe -a -d \
++    /vendor/lib/modules nxpnfc_i2c
+ 
+ on post-fs
+     start pd_mapper
+@@ -49,6 +51,7 @@ on post-fs-data
+     mkdir /data/vendor/readonly/firmware
+     mkdir /data/vendor/readonly/firmware/image
+     write /sys/class/firmware/timeout 1
++    write /sys/power/wake_lock nosleep
+     start tqftpserv
+     start rmtfs
+ 
+diff --git a/ueventd.common.rc b/ueventd.common.rc
+index 8ae7d94..387d04f 100644
+--- a/ueventd.common.rc
++++ b/ueventd.common.rc
+@@ -13,3 +13,8 @@ subsystem usbmisc
+ # usb webcam?
+ /dev/video0 0660 system camera
+ /dev/video1 0660 system camera
++
++/dev/ttyACM0     0666 nfc nfc
++/dev/ttyACM1     0666 nfc nfc
++/dev/nxpnfc     0666 nfc nfc
++

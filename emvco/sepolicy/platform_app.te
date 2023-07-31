@@ -1,0 +1,6 @@
+#============= platform_app ==============
+allow platform_app hal_emvco_default:binder call;
+allow hal_emvco_default platform_app:binder call;
+#============= platform_app ==============
+allow platform_app hal_emvco_service:service_manager find;
+allow platform_app hal_emvco_default:binder transfer;

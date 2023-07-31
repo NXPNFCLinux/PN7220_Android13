@@ -1,0 +1,9 @@
+NXP Software Content Register
+--------------------------------------------
+Repository: PN7220_Android13
+Version:  13.04.00
+Outgoing License: LA_OPT_NXP_Software_License v47 July 2023 - Standard License, license in Section 2.2 applies
+License File: LICENSE.txt
+Description and Comments: PN7220 NFC Android Middleware
+Release Location: https://github.com/NXPNFCLinux/PN7220_Android13/
+Origin: NXP (LA_OPT_NXP_Software_License)

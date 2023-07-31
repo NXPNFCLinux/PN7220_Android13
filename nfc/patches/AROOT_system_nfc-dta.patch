@@ -1,0 +1,198 @@
+diff --git a/dtaLib/Android.bp b/dtaLib/Android.bp
+index 84f2c486..de3a6d82 100644
+--- a/dtaLib/Android.bp
++++ b/dtaLib/Android.bp
+@@ -40,8 +40,8 @@ cc_library_shared {
+         "system/nfc-dta/dtaPlatform/phInfra/inc",
+         "system/nfc-dta/dtaPlatform/phDtaOsal/inc",
+         "system/nfc-dta/dtaPlatform/phDtaOsal/src/comps/android/inc",
+-        "system/nfc/SN100x/src/gki/common/",
+-        "system/nfc/SN100x/src/gki/ulinux/",
++        "system/nfc/src/gki/common/",
++        "system/nfc/src/gki/ulinux/",
+     ],
+     local_include_dirs: [
+         "inc/",
+diff --git a/dtaMwAl/src/comps/android/Android.bp b/dtaMwAl/src/comps/android/Android.bp
+index 50c6f14d..46f151aa 100644
+--- a/dtaMwAl/src/comps/android/Android.bp
++++ b/dtaMwAl/src/comps/android/Android.bp
+@@ -39,7 +39,7 @@ cc_library_shared {
+         "libc",
+         "libdl",
+         "liblog",
+-        "vendor.nxp.nxpnfc@2.0",
++        "vendor.nxp.nxpnfc@1.0",
+         "android.hardware.nfc@1.2",
+     ],
+     cflags: [
+@@ -53,7 +53,8 @@ cc_library_shared {
+         "-DANDROID_P=FALSE",
+         "-DANDROID_R=FALSE",
+         "-DANDROID_S=TRUE",
+-        "-DNXP_QTAG=TRUE"
++        "-DNXP_QTAG=TRUE",
++        "-DNXP_PLATFORM_PN7220=TRUE"
+     ],
+     srcs: [
+         "src/*.cpp"
+@@ -65,12 +66,12 @@ cc_library_shared {
+         "system/nfc-dta/dtaPlatform/phInfra/inc",
+         "system/nfc-dta/dtaMwAl/inc",
+         "frameworks/native/include",
+-        "system/nfc/SN100x/src/include",
+-        "system/nfc/SN100x/src/nfa/include",
+-        "system/nfc/SN100x/src/nfc/include",
+-        "system/nfc/SN100x/src/gki/ulinux",
+-        "system/nfc/SN100x/src/gki/common",
+-        "system/nfc/SN100x/utils/include",
++        "system/nfc/src/include",
++        "system/nfc/src/nfa/include",
++        "system/nfc/src/nfc/include",
++        "system/nfc/src/gki/ulinux",
++        "system/nfc/src/gki/common",
++        "system/nfc/utils/include",
+         "frameworks/base/media/mca/filterfw/native/base",
+     ],
+     local_include_dirs: [
+diff --git a/dtaMwAl/src/comps/android/src/phMwIfAndroid.cpp b/dtaMwAl/src/comps/android/src/phMwIfAndroid.cpp
+index dd44019b..f52e90d5 100755
+--- a/dtaMwAl/src/comps/android/src/phMwIfAndroid.cpp
++++ b/dtaMwAl/src/comps/android/src/phMwIfAndroid.cpp
+@@ -362,7 +362,7 @@ MWIFSTATUS phMwIf_ConfigParams(void* mwIfHandle, phMwIf_sConfigParams_t *sConfig
+         abConfigIDData[0] = 0x01;
+         phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_PF_BIT_RATE, 0x01, abConfigIDData);
+     }
+-
++#if(NXP_PLATFORM_PN7220 == FALSE)
+     if(sConfigParams->bNfcdepPollBitRateHigh == TRUE)
+     {
+         abConfigIDData[0] = 0x00;
+@@ -386,7 +386,7 @@ MWIFSTATUS phMwIf_ConfigParams(void* mwIfHandle, phMwIf_sConfigParams_t *sConfig
+         mwIfHdl->u8NfcDepLnWtConfigVal = abConfigIDData[0] = 0x08;
+         phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_LN_WT, 0x01, abConfigIDData);
+     }
+-
++#endif
+     if ((strcmp(sConfigParams->aCertRelease, "CR12") == 0x00) ||
+         (strcmp(sConfigParams->aCertRelease, "CR13") == 0x00)) {
+       if (sConfigParams->sMwIfDiscCfgParams.discParams.dwP2pAcmIni) {
+@@ -439,6 +439,7 @@ MWIFSTATUS phMwIf_ConfigParams(void* mwIfHandle, phMwIf_sConfigParams_t *sConfig
+         phMwIfi_SetConfigProp(mwIfHdl, PHMWIF_NCI_CONFIG_PROP_LISTEN_PROFILE_SEL_CFG, 0x01, abConfigIDData);
+     }
+     ALOGD("MwIf>%s:Calling MwIf SetConfig ",__FUNCTION__);
++#if(NXP_PLATFORM_PN7220 == FALSE)
+     abConfigIDData[0] = 0x00;
+     phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_PN_ATR_REQ_GEN_BYTES_CFG, 0, abConfigIDData);//ATR_REQ General bytes
+     abConfigIDData[0] = 0x00;
+@@ -446,6 +447,7 @@ MWIFSTATUS phMwIf_ConfigParams(void* mwIfHandle, phMwIf_sConfigParams_t *sConfig
+     abConfigIDData[0] = 0x30;
+     phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_PN_ATR_REQ_CFG, 1, abConfigIDData);
+     abConfigIDData[0] = 0x00;
++#endif
+     phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_PI_BIT_RATE, 0x01, abConfigIDData);
+     abConfigIDData[0] = 0x08;
+     phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_LA_BIT_FRAME_SDD, 0x01, abConfigIDData);
+@@ -458,6 +460,7 @@ MWIFSTATUS phMwIf_ConfigParams(void* mwIfHandle, phMwIf_sConfigParams_t *sConfig
+     abConfigIDData[2] = 0x03;
+     abConfigIDData[3] = 0x04;
+     phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_LA_NFCID1, 0x04, abConfigIDData);
++#if(NXP_PLATFORM_PN7220 == FALSE)
+     abConfigIDData[0] = 0x06;
+     phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_LF_CON_BITR_F, 0x01, abConfigIDData);
+     if(sConfigParams->sMwIfDiscCfgParams.discParams.dwListenP2P == P2P_DISABLED)
+@@ -492,17 +495,21 @@ MWIFSTATUS phMwIf_ConfigParams(void* mwIfHandle, phMwIf_sConfigParams_t *sConfig
+     {
+         abConfigIDData[0] = 0x02; /** Protocol Type value */
+     }
++
+     phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_LF_PROTOCOL_TYPE, 0x01, abConfigIDData);
++#endif
+     abConfigIDData[0] = 0x02;
+     phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_LI_BIT_RATE, 0x01, abConfigIDData);
+     abConfigIDData[0] = 0x01;
+     phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_RF_FIELD_INFO, 0x01, abConfigIDData);
+     abConfigIDData[0] = 0x01;
+     phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_RF_NFCEE_ACTION, 0x01, abConfigIDData);
++#if(NXP_PLATFORM_PN7220 == FALSE)
+     abConfigIDData[0] = 0x0E;
+     phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_NFCDEP_OP, 0x01, abConfigIDData);
+     abConfigIDData[0] = 0x00;
+     phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_PF_RC_CODE, 0x01, abConfigIDData);
++#endif
+     abConfigIDData[0] = 0xE8;
+     abConfigIDData[1] = 0x03;
+     phMwIfi_SetConfig(mwIfHdl, PHMWIF_NCI_CONFIG_TOTAL_DURATION, 0x02, abConfigIDData);
+diff --git a/dtaPlatform/phDtaOsal/src/comps/android/Android.bp b/dtaPlatform/phDtaOsal/src/comps/android/Android.bp
+index 02b8d020..2323d720 100644
+--- a/dtaPlatform/phDtaOsal/src/comps/android/Android.bp
++++ b/dtaPlatform/phDtaOsal/src/comps/android/Android.bp
+@@ -41,12 +41,12 @@ cc_library_shared {
+         "system/nfc-dta/dtaPlatform/phInfra/inc",
+         "system/nfc-dta/dtaPlatform/phDtaOsal/src/comps/android/inc",
+         "system/nfc-dta/dtaPlatform/phDtaOsal/inc",
+-        "system/nfc/SN100x/src/include",
+-        "system/nfc/SN100x/src/nfa/include",
+-        "system/nfc/SN100x/src/nfc/include",
+-        "system/nfc/SN100x/src/gki/ulinux",
+-        "system/nfc/SN100x/src/gki/common",
+-        "system/nfc/SN100x/utils/include",
++        "system/nfc/src/include",
++        "system/nfc/src/nfa/include",
++        "system/nfc/src/nfc/include",
++        "system/nfc/src/gki/ulinux",
++        "system/nfc/src/gki/common",
++        "system/nfc/utils/include",
+     ],
+ 
+     srcs: [
+diff --git a/dtaUI/dtaGui/src/comps/android/jni/Android.bp b/dtaUI/dtaGui/src/comps/android/jni/Android.bp
+index ad8968b8..29ac6e74 100644
+--- a/dtaUI/dtaGui/src/comps/android/jni/Android.bp
++++ b/dtaUI/dtaGui/src/comps/android/jni/Android.bp
+@@ -37,8 +37,8 @@ cc_library_shared {
+         "system/nfc-dta/dtaPlatform/phDtaOsal/inc",
+         "system/nfc-dta/dtaPlatform/phDtaOsal/src/comps/android/inc",
+         "system/nfc-dta/dtaMwAl/inc/",
+-        "system/nfc/SN100x/src/gki/common/",
+-        "system/nfc/SN100x/src/gki/ulinux/",
++        "system/nfc/src/gki/common/",
++        "system/nfc/src/gki/ulinux/",
+     ],
+     srcs: ["*.cpp"],
+ 
+diff --git a/dtaUI/dtaGui/src/comps/android/ui/Android.bp b/dtaUI/dtaGui/src/comps/android/ui/Android.bp
+index c3fd2ac0..8ecc0300 100644
+--- a/dtaUI/dtaGui/src/comps/android/ui/Android.bp
++++ b/dtaUI/dtaGui/src/comps/android/ui/Android.bp
+@@ -27,15 +27,11 @@ android_app {
+         "src/**/*.java",
+     ],
+ 
+-    libs: ["com.nxp.nfc"],
+ 
+     static_libs: [
+         "android-support-v4",
+         "android-support-core-utils",
+     ],
+-    uses_libs: [
+-        "com.nxp.nfc",
+-    ],
+ }
+ 
+ //  Platform or chip specific build
+diff --git a/dtaUI/dtaGui/src/comps/android/ui/AndroidManifest.xml b/dtaUI/dtaGui/src/comps/android/ui/AndroidManifest.xml
+index 8531f7a6..cc7c3d12 100644
+--- a/dtaUI/dtaGui/src/comps/android/ui/AndroidManifest.xml
++++ b/dtaUI/dtaGui/src/comps/android/ui/AndroidManifest.xml
+@@ -83,10 +83,6 @@
+         </intent-filter>
+     </service>
+ 
+-    <uses-library android:name="com.nxp.nfc"
+-            android:required="true"
+-        />
+-
+     </application>
+ 
+ </manifest>

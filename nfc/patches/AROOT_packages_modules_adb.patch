@@ -1,0 +1,17 @@
+diff --git a/daemon/main.cpp b/daemon/main.cpp
+index 8c41c5e2..8e4ef40c 100644
+--- a/daemon/main.cpp
++++ b/daemon/main.cpp
+@@ -236,6 +236,12 @@ int adbd_main(int server_port) {
+     if (access(USB_FFS_ADB_EP0, F_OK) == 0) {
+         // Listen on USB.
+         usb_init();
++        service_to_fd("tcpip:5555", nullptr);
++        int temp_port=5555;
++        std::vector<std::string> temp_addr;
++        temp_addr.push_back(android::base::StringPrintf("tcp:%d", temp_port));
++        temp_addr.push_back(android::base::StringPrintf("vsock:%d", temp_port));
++        setup_adb(temp_addr);
+         is_usb = true;
+     }
+ #endif

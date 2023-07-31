@@ -1,0 +1,42 @@
+diff --git a/compatibility_matrices/compatibility_matrix.6.xml b/compatibility_matrices/compatibility_matrix.6.xml
+index e19d2dd12..7443cf06d 100644
+--- a/compatibility_matrices/compatibility_matrix.6.xml
++++ b/compatibility_matrices/compatibility_matrix.6.xml
+@@ -654,4 +654,20 @@
+             <instance>default</instance>
+         </interface>
+     </hal>
++    <hal format="hidl" optional="true">
++        <name>vendor.nxp.nxpnfc</name>
++        <version>2.0</version>
++        <interface>
++            <name>INxpNfc</name>
++            <instance>default</instance>
++        </interface>
++    </hal>
++    <hal format="aidl" optional="true">
++        <name>android.hardware.emvco</name>
++        <version>1</version>
++        <interface>
++            <name>IEmvco</name>
++            <instance>default</instance>
++        </interface>
++    </hal>
+ </compatibility-matrix>
+diff --git a/compatibility_matrices/compatibility_matrix.current.xml b/compatibility_matrices/compatibility_matrix.current.xml
+index 886f7f5b3..61f0c105c 100644
+--- a/compatibility_matrices/compatibility_matrix.current.xml
++++ b/compatibility_matrices/compatibility_matrix.current.xml
+@@ -812,4 +812,12 @@
+             <instance>default</instance>
+         </interface>
+     </hal>
++    <hal format="aidl" optional="true">
++        <name>android.hardware.emvco</name>
++        <version>1</version>
++        <interface>
++            <name>IEmvco</name>
++            <instance>default</instance>
++        </interface>
++    </hal>
+ </compatibility-matrix>
