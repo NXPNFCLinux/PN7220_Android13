@@ -16,7 +16,7 @@ cd $ANDROID_BUILD_TOP/frameworks/base
 patch -p1 <$ANDROID_BUILD_TOP/vendor/nxp/nfc/patches/AROOT_frameworks_base.patch
 cd $ANDROID_BUILD_TOP/vendor/nxp/
 mkdir frameworks
-cd $ANDROID_BUILD_TOP/vendor/nxp/frameworks
+cd frameworks
 patch -p1 <$ANDROID_BUILD_TOP/vendor/nxp/nfc/patches/AROOT_vendor_nxp_frameworks.patch
 cd $ANDROID_BUILD_TOP/build/make
 patch -p1 <$ANDROID_BUILD_TOP/vendor/nxp/nfc/patches/AROOT_build_make.patch
@@ -29,7 +29,7 @@ patch -p1 <$ANDROID_BUILD_TOP/vendor/nxp/nfc/patches/AROOT_build_soong.patch
 
 cd $ANDROID_BUILD_TOP/hardware/nxp
 mkdir emvco
-cd $ANDROID_BUILD_TOP/hardware/nxp/emvco
+cd emvco
 patch -p1 <$ANDROID_BUILD_TOP/vendor/nxp/nfc/patches/AROOT_hardware_nxp_emvco.patch
 cd $ANDROID_BUILD_TOP/packages/modules/adb
 patch -p1 <$ANDROID_BUILD_TOP/vendor/nxp/nfc/patches/AROOT_packages_modules_adb.patch
