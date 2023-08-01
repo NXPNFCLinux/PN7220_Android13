@@ -27,12 +27,6 @@ patch -p1 <$ANDROID_BUILD_TOP/vendor/nxp/nfc/patches/AROOT_system_core.patch
 cd $ANDROID_BUILD_TOP/build/soong
 patch -p1 <$ANDROID_BUILD_TOP/vendor/nxp/nfc/patches/AROOT_build_soong.patch
 
-#I.MX8M Nano specific patches
-#cd $ANDROID_BUILD_TOP/device/nxp
-#patch -p1 <$ANDROID_BUILD_TOP/vendor/nxp/nfc/patches/AROOT_device_nxp.patch
-#cd $ANDROID_BUILD_TOP/vendor/nxp-opensource/kernel/imx
-#patch -p1 <$ANDROID_BUILD_TOP/vendor/nxp/nfc/patches/AROOT_vendor_nxp-opensource_kernel_imx.patch
-
 cd $ANDROID_BUILD_TOP/hardware/nxp
 mkdir emvco
 cd $ANDROID_BUILD_TOP/hardware/nxp/emvco
